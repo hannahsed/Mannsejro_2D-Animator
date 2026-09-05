@@ -1,0 +1,6 @@
+{
+  "name": "MannSejro Studio",
+  "description": "Professional 2D frame-by-frame animation studio with timeline, multi-layer canvas, video & image reference overlays, rich drawing and coloring tools, onion skinning, and multi-format export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
