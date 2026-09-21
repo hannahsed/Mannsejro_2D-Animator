@@ -10,9 +10,22 @@ import { copyTiles } from '../infiniteCanvas.js';
 export function addFrameAfter(idx) {
   const newId = `frame_${Date.now()}`;
   const layerData = {};
-  state.project.layers.forEach((l) => {
-    layerData[l.id] = { tiles: {} };
+  const prevFrame = state.project.frames[idx];
+
+  state.project.layers.forEach((layer) => {
+    if (layer.persistent && prevFrame && prevFrame.layerData[layer.id]) {
+      // PERSISTENT LAYER: Carry over background artwork (tiles and vector strokes)
+      const prevData = prevFrame.layerData[layer.id];
+      layerData[layer.id] = {
+        tiles: copyTiles(prevData.tiles),
+        strokes: prevData.strokes ? JSON.parse(JSON.stringify(prevData.strokes)) : []
+      };
+    } else {
+      // ANIMATION LAYER: Clean, fresh blank canvas ready for next drawing
+      layerData[layer.id] = { tiles: {}, strokes: [] };
+    }
   });
+
   state.project.frames.splice(idx + 1, 0, { id: newId, duration: 1, layerData });
   if (state.isPlaying) buildPlaybackTicks();
   setFrameIndex(idx + 1);
@@ -26,7 +39,10 @@ export function duplicateFrameAt(idx) {
   const dupId = `frame_dup_${Date.now()}`;
   const layerData = {};
   for (const key in curr.layerData) {
-    layerData[key] = { tiles: copyTiles(curr.layerData[key]?.tiles) };
+    layerData[key] = {
+      tiles: copyTiles(curr.layerData[key]?.tiles),
+      strokes: curr.layerData[key]?.strokes ? JSON.parse(JSON.stringify(curr.layerData[key].strokes)) : []
+    };
   }
   state.project.frames.splice(idx + 1, 0, {
     id: dupId,
@@ -55,7 +71,7 @@ export function deleteFrameAt(idx) {
 export function clearFrameAt(idx) {
   const frame = state.project.frames[idx];
   if (!frame) return;
-  frame.layerData[state.activeLayerId] = { tiles: {} };
+  frame.layerData[state.activeLayerId] = { tiles: {}, strokes: [] };
   if (idx === state.currentFrameIndex) requestRender();
   renderTimelineFilmstrip();
   saveHistoryState();

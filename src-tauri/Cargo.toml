@@ -1,0 +1,19 @@
+[package]
+name = "mannsejro-studio"
+version = "2.0.0"
+description = "MannSejro Studio 2D Animation Engine"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.5", features = ["dialog-all", "fs-all", "path-all", "shell-open"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+dirs-next = "2.0"
+tokio = { version = "1.32", features = ["full"] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

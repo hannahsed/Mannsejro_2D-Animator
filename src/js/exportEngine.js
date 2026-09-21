@@ -1,14 +1,44 @@
 // Exports render exactly what the CAMERA sees, composited from infinite tiles.
 import JSZip from 'jszip';
 import { drawTilesInWorldRect, cameraWorldAABB } from './infiniteCanvas.js';
+import { drawStroke, drawShape, drawPolygonShape } from './canvasUtils.js';
+import { drawNodeQuad } from './viewport/nodeDraw.js';
+import { drawPerspectiveShape } from './viewport/perspectiveRectangleStudio.js';
+import { renderNodeNetworkToContext } from './viewport/nodeTool.js';
+import { CameraTrack } from './viewport/cameraTrack.js';
 
 export function sanitizeFilename(name) {
   return (name || 'project').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
 }
 
+async function renderLayerContent(destCtx, lData, aabb) {
+  if (!lData) return;
+  if (lData.tiles) {
+    await drawTilesInWorldRect(destCtx, lData.tiles, aabb);
+  }
+  if (lData.strokes && lData.strokes.length > 0) {
+    for (const stroke of lData.strokes) {
+      if (stroke.isNodePath) {
+        renderNodeNetworkToContext(destCtx, stroke.nodes, stroke.edges, stroke.settings);
+      } else if (stroke.isPerspectiveShape) {
+        drawPerspectiveShape(destCtx, stroke);
+      } else if (stroke.isPolygon) {
+        drawPolygonShape(destCtx, stroke);
+      } else if (stroke.isNodeQuad) {
+        drawNodeQuad(destCtx, stroke);
+      } else if (stroke.isShape && stroke.shapeData) {
+        drawShape(destCtx, stroke.tool, stroke.shapeData.start, stroke.shapeData.end, stroke.settings, stroke.shapeData.shiftKey);
+      } else {
+        drawStroke(destCtx, stroke.points, stroke.tool, stroke.settings);
+      }
+    }
+  }
+}
+
 // Composite one frame's camera view into destCtx at destW×destH with clipping mask support
 export async function renderCameraView(project, frame, destCtx, destW, destH) {
-  const cam = project.camera || { x: project.width / 2, y: project.height / 2, rotation: 0, scale: 1 };
+  const frameIdx = project?.frames ? project.frames.indexOf(frame) : 0;
+  const cam = CameraTrack.evaluate(project, frameIdx >= 0 ? frameIdx : 0);
   const sx = destW / project.width;
   const sy = destH / project.height;
   destCtx.save();
@@ -42,7 +72,7 @@ export async function renderCameraView(project, frame, destCtx, destW, destH) {
       destCtx.save();
       destCtx.globalAlpha = baseLayer.opacity !== undefined ? baseLayer.opacity : 1;
       destCtx.globalCompositeOperation = baseLayer.blendMode || 'source-over';
-      await drawTilesInWorldRect(destCtx, frame.layerData[baseLayer.id]?.tiles, aabb);
+      await renderLayerContent(destCtx, frame.layerData[baseLayer.id], aabb);
       destCtx.restore();
     } else {
       // Offscreen canvas for base + clipped chain
@@ -55,14 +85,14 @@ export async function renderCameraView(project, frame, destCtx, destW, destH) {
       bctx.save();
       bctx.globalAlpha = 1;
       bctx.globalCompositeOperation = 'source-over';
-      await drawTilesInWorldRect(bctx, frame.layerData[baseLayer.id]?.tiles, aabb);
+      await renderLayerContent(bctx, frame.layerData[baseLayer.id], aabb);
       bctx.restore();
 
       for (const child of clippedGroup) {
         bctx.save();
         bctx.globalCompositeOperation = 'source-atop';
         bctx.globalAlpha = child.opacity !== undefined ? child.opacity : 1;
-        await drawTilesInWorldRect(bctx, frame.layerData[child.id]?.tiles, aabb);
+        await renderLayerContent(bctx, frame.layerData[child.id], aabb);
         bctx.restore();
       }
 

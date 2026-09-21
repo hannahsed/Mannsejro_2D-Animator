@@ -1,49 +1,58 @@
 // src/js/project/history.js
-import { state } from '../state/appState.js';
-import { elements } from '../state/domElements.js';
+import { commandManager, SnapshotCommand } from './commandManager.js';
 import { scheduleAutosave } from './autosave.js';
-import { requestRender } from '../render/renderEngine.js';
-import { renderTimelineFilmstrip } from '../timeline/filmstrip.js';
-import { renderLayersList } from '../ui/layersUI.js';
+import { state } from '../state/appState.js';
 
-const MAX_HISTORY = 15;
+let lastSnapshot = null;
 
-export function saveHistoryState() {
+export async function undo() {
+  await commandManager.undo();
+  scheduleAutosave(true);
+}
+
+export async function redo() {
+  await commandManager.redo();
+  scheduleAutosave(true);
+}
+
+/**
+ * Universal state recorder:
+ * When operations (like layer changes, frame additions, shape commits) call saveHistoryState(),
+ * this creates an undoable snapshot so nothing is lost.
+ */
+export function saveHistoryState(actionDescription = 'Change') {
   if (!state.project) return;
-  const serialized = JSON.stringify(state.project);
-  const upToCurrent = state.historyStack.slice(0, state.historyIndex + 1);
-  state.historyStack = [...upToCurrent, serialized];
-  if (state.historyStack.length > MAX_HISTORY) state.historyStack.shift();
-  state.historyIndex = state.historyStack.length - 1;
-  updateUndoRedoButtons();
-  scheduleAutosave();
+
+  const currentProjectJson = JSON.stringify(state.project);
+  const currentProjectParsed = JSON.parse(currentProjectJson);
+
+  if (!lastSnapshot) {
+    lastSnapshot = currentProjectParsed;
+    commandManager.notifyUI();
+    scheduleAutosave(true);
+    return;
+  }
+
+  // If state actually changed, push an undoable command
+  if (JSON.stringify(lastSnapshot) !== currentProjectJson) {
+    const cmd = new SnapshotCommand(actionDescription, lastSnapshot, currentProjectParsed);
+    commandManager.undoStack.push(cmd);
+    if (commandManager.undoStack.length > commandManager.maxDepth) {
+      commandManager.undoStack.shift();
+    }
+    commandManager.clearRedoStack();
+    lastSnapshot = currentProjectParsed;
+    commandManager.saveHistoryToStorage();
+  }
+
+  commandManager.notifyUI();
+  scheduleAutosave(true);
 }
 
-export function undo() {
-  if (state.historyIndex > 0) {
-    state.historyIndex--;
-    state.project = JSON.parse(state.historyStack[state.historyIndex]);
-    requestRender();
-    renderTimelineFilmstrip();
-    renderLayersList();
-    updateUndoRedoButtons();
-    scheduleAutosave();
-  }
-}
-
-export function redo() {
-  if (state.historyIndex < state.historyStack.length - 1) {
-    state.historyIndex++;
-    state.project = JSON.parse(state.historyStack[state.historyIndex]);
-    requestRender();
-    renderTimelineFilmstrip();
-    renderLayersList();
-    updateUndoRedoButtons();
-    scheduleAutosave();
-  }
+export function resetHistoryTracking(project) {
+  lastSnapshot = project ? JSON.parse(JSON.stringify(project)) : null;
 }
 
 export function updateUndoRedoButtons() {
-  if (elements.btnUndo) elements.btnUndo.disabled = state.historyIndex <= 0;
-  if (elements.btnRedo) elements.btnRedo.disabled = state.historyIndex >= state.historyStack.length - 1;
+  commandManager.notifyUI();
 }

@@ -1,118 +1,144 @@
 // src/js/viewport/dualStabilizer.js
-/**
- * DUAL-STAGE ASSISTANT STABILIZER
- * Stage 1: Adaptive Exponential Streamline (High-frequency tremor filter)
- * Stage 2: Heavy Inertial Leash Damper (Low-frequency arc stabilizer / Pulled String)
- */
+import { state } from '../state/appState.js';
 
+/**
+ * VELOCITY-COMPENSATED DUAL-STAGE STREAMLINE STABILIZER
+ * Stage 1: Dynamic Tremor Filter (Adaptive Exponential Moving Average)
+ * Stage 2: Inertial Elastic Spring Damper (Silky Arc Pull-String)
+ */
 export class DualStabilizer {
   constructor() {
-    this.stage1Pt = null;       // Output of Streamline
-    this.stage2Pt = null;       // Output of Inertial Leash (Pen Tip)
-    this.rawPointer = null;     // Actual hardware cursor
+    this.history = [];
+    this.stage1Pt = null;
+    this.stage2Pt = null;
+    this.rawPointer = null;
     this.velocity = { x: 0, y: 0 };
+    this.lastTime = 0;
   }
 
   reset(startWorldPt) {
-    this.stage1Pt = { ...startWorldPt };
-    this.stage2Pt = { ...startWorldPt };
-    this.rawPointer = { ...startWorldPt };
+    if (startWorldPt && typeof startWorldPt.x === 'number' && typeof startWorldPt.y === 'number') {
+      const init = {
+        x: startWorldPt.x,
+        y: startWorldPt.y,
+        pressure: startWorldPt.pressure ?? 0.75,
+      };
+      this.stage1Pt = { ...init };
+      this.stage2Pt = { ...init };
+      this.rawPointer = { ...init };
+      this.history = [{ ...init }];
+    } else {
+      this.stage1Pt = null;
+      this.stage2Pt = null;
+      this.rawPointer = null;
+      this.history = [];
+    }
     this.velocity = { x: 0, y: 0 };
+    this.lastTime = performance.now();
   }
 
   /**
-   * Processes a raw input coordinate through both stabilizer stages.
-   * @param {Object} rawPt - { x, y, pressure }
-   * @param {Object} settings - Tool settings with both stabilizers
+   * Processes a raw stylus/mouse point into a smooth, steady stabilized coordinate.
    */
-  process(rawPt, settings) {
+  process(rawPt, settings = {}) {
     this.rawPointer = { ...rawPt };
 
     if (!this.stage1Pt || !this.stage2Pt) {
       this.reset(rawPt);
-      return rawPt;
+      return { ...rawPt };
     }
 
-    // ========================================================
-    // STAGE 1: Adaptive Streamline (EMA Tremor Filter)
-    // ========================================================
-    const s1Strength = Math.max(0, Math.min(0.96, settings.smoothing ?? 0.5));
-    const k1 = 1 - Math.pow(s1Strength, 0.7);
+    const now = performance.now();
+    const dt = Math.max(1, Math.min(32, now - (this.lastTime || now)));
+    this.lastTime = now;
 
-    this.stage1Pt = {
-      x: this.stage1Pt.x + (rawPt.x - this.stage1Pt.x) * k1,
-      y: this.stage1Pt.y + (rawPt.y - this.stage1Pt.y) * k1,
-      pressure: rawPt.pressure ?? 1,
-    };
+    // Decent default smoothing: 0.60 (60%)
+    const smoothingLevel = Math.max(0, Math.min(0.95, settings.smoothing ?? 0.60));
 
-    // If Assistant (Stage 2) is disabled, return Stage 1 directly
-    if (!settings.assistantStabilizer) {
-      this.stage2Pt = { ...this.stage1Pt };
-      return this.stage1Pt;
+    if (smoothingLevel <= 0.02) {
+      this.stage1Pt = { ...rawPt };
+      this.stage2Pt = { ...rawPt };
+      return { ...rawPt };
     }
 
-    // ========================================================
-    // STAGE 2: Inertial Leash Damper (Weighted Pull-String)
-    // ========================================================
-    const leashRadius = settings.leashRadius ?? 16;      // Elastic string length
-    const massWeight = settings.assistantWeight ?? 0.65; // 0 (light) to 0.95 (heavy mass)
-
-    const dx = this.stage1Pt.x - this.stage2Pt.x;
-    const dy = this.stage1Pt.y - this.stage2Pt.y;
+    const dx = rawPt.x - this.stage1Pt.x;
+    const dy = rawPt.y - this.stage1Pt.y;
     const dist = Math.hypot(dx, dy);
+    const speed = dist / dt; // world units per ms
 
-    if (dist > leashRadius) {
-      // Pull pen tip towards the edge of the taut leash
-      const angle = Math.atan2(dy, dx);
-      const targetX = this.stage1Pt.x - Math.cos(angle) * leashRadius;
-      const targetY = this.stage1Pt.y - Math.sin(angle) * leashRadius;
+    // Velocity compensation: fast flicks remain responsive, slow lines get maximum smoothing
+    const speedFactor = Math.min(1, speed / 3.0);
+    const adaptiveSmoothing = smoothingLevel * (1 - speedFactor * 0.45);
 
-      // Spring-mass inertia with friction damping
-      const friction = Math.max(0.05, 1 - massWeight * 0.92);
-      this.velocity.x += (targetX - this.stage2Pt.x) * friction;
-      this.velocity.y += (targetY - this.stage2Pt.y) * friction;
+    // Stage 1: Exponential Tremor Filter
+    const k1 = Math.max(0.08, 1 - Math.pow(adaptiveSmoothing, 0.65));
+    this.stage1Pt.x += dx * k1;
+    this.stage1Pt.y += dy * k1;
 
-      this.stage2Pt.x += this.velocity.x;
-      this.stage2Pt.y += this.velocity.y;
+    const rawPres = rawPt.pressure ?? 0.75;
+    this.stage1Pt.pressure += (rawPres - this.stage1Pt.pressure) * 0.35;
 
-      // Damping velocity falloff
-      this.velocity.x *= 0.35;
-      this.velocity.y *= 0.35;
-    } else {
-      // Inside the deadzone: apply heavy resting drag
-      this.velocity.x *= 0.1;
-      this.velocity.y *= 0.1;
-    }
+    // Stage 2: Inertial Elastic Spring Damper
+    const s2Weight = Math.min(0.85, smoothingLevel * 1.1);
+    const springK = Math.max(0.12, 1 - s2Weight);
 
+    const s2dx = this.stage1Pt.x - this.stage2Pt.x;
+    const s2dy = this.stage1Pt.y - this.stage2Pt.y;
+
+    this.velocity.x = (this.velocity.x + s2dx * springK) * 0.45;
+    this.velocity.y = (this.velocity.y + s2dy * springK) * 0.45;
+
+    this.stage2Pt.x += this.velocity.x;
+    this.stage2Pt.y += this.velocity.y;
     this.stage2Pt.pressure = this.stage1Pt.pressure;
-    return { ...this.stage2Pt };
+
+    return {
+      x: this.stage2Pt.x,
+      y: this.stage2Pt.y,
+      pressure: this.stage2Pt.pressure,
+    };
   }
 
   /**
-   * Renders the visible elastic leash string guide on the stroke canvas.
+   * Catches up the lagging pen tip smoothly to release point without angular fishhook kinks.
    */
-  renderGuide(ctx) {
-    if (!this.rawPointer || !this.stage2Pt) return;
+  flush() {
+    if (!this.rawPointer || !this.stage2Pt) return [];
 
-    ctx.save();
-    ctx.beginPath();
-    ctx.setLineDash([3, 3]);
-    ctx.lineWidth = 1.2;
-    ctx.strokeStyle = 'rgba(249, 115, 22, 0.85)'; // Flame Orange guide
+    const steps = [];
+    const dx = this.rawPointer.x - this.stage2Pt.x;
+    const dy = this.rawPointer.y - this.stage2Pt.y;
+    const totalDist = Math.hypot(dx, dy);
 
-    // Draw leash from current pen tip to raw cursor location
-    ctx.moveTo(this.stage2Pt.x, this.stage2Pt.y);
-    ctx.lineTo(this.rawPointer.x, this.rawPointer.y);
-    ctx.stroke();
+    if (totalDist > 0.8) {
+      // Limit count and follow exiting momentum tangent
+      const count = Math.min(4, Math.max(2, Math.ceil(totalDist / 6)));
+      const pStartPres = this.stage2Pt.pressure ?? 0.75;
+      const pEndPres = this.rawPointer.pressure ?? pStartPres;
 
-    // Draw leash tip anchor circle
-    ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(249, 115, 22, 0.9)';
-    ctx.beginPath();
-    ctx.arc(this.stage2Pt.x, this.stage2Pt.y, 2.5, 0, Math.PI * 2);
-    ctx.fill();
+      const vx = this.velocity ? this.velocity.x * 2 : dx / count;
+      const vy = this.velocity ? this.velocity.y * 2 : dy / count;
 
-    ctx.restore();
+      for (let i = 1; i <= count; i++) {
+        const t = i / count;
+        // Cubic Hermite transition respecting velocity tangent
+        const t2 = t * t;
+        const t3 = t2 * t;
+        const h00 = 2 * t3 - 3 * t2 + 1;
+        const h10 = t3 - 2 * t2 + t;
+        const h01 = -2 * t3 + 3 * t2;
+
+        const x = h00 * this.stage2Pt.x + h10 * vx + h01 * this.rawPointer.x;
+        const y = h00 * this.stage2Pt.y + h10 * vy + h01 * this.rawPointer.y;
+        const pressure = pStartPres + (pEndPres - pStartPres) * t;
+
+        steps.push({ x, y, pressure });
+      }
+      this.stage2Pt.x = this.rawPointer.x;
+      this.stage2Pt.y = this.rawPointer.y;
+    }
+
+    return steps;
   }
 }
 

@@ -3,6 +3,9 @@ import { state } from '../state/appState.js';
 import { elements } from '../state/domElements.js';
 import { renderCameraView } from '../exportEngine.js';
 import { stopPlayback, setFrameIndex, startPlayback } from './playback.js';
+import { CameraTrack } from '../viewport/cameraTrack.js';
+import { audioEngine } from '../audio/audioEngine.js';
+import { requestRender } from '../render/renderEngine.js';
 import {
   duplicateFrameAt,
   setFrameDuration,
@@ -18,50 +21,67 @@ const THUMB_H = 48;
 let frameMenuEl = null;
 let frameMenuIdx = -1;
 
+export function renderTimelineWaveform() {
+  const canvas = elements.waveformCanvas || document.getElementById('waveform-canvas');
+  if (!canvas || !state.project) return;
+  const totalFrames = state.project.frames?.length || 1;
+  const fps = state.project.fps || 12;
+  const currentFrame = state.currentFrameIndex || 0;
+  audioEngine.renderWaveformToCanvas(canvas, totalFrames, fps, currentFrame);
+}
+
 export function renderTimelineFilmstrip() {
   if (!elements.filmstripScrollArea || !state.project?.frames) return;
   elements.filmstripScrollArea.innerHTML = '';
 
   const inFrame = state.loopIn || 0;
   const outFrame = state.loopOut >= 0 ? state.loopOut : state.project.frames.length - 1;
+  const camTrack = CameraTrack.getTrack(state.project);
+  const camKeyframeIndices = new Set((camTrack.keyframes || []).map((k) => k.frame));
 
   state.project.frames.forEach((frame, idx) => {
     const isActive = idx === state.currentFrameIndex;
     const inLoop = idx >= inFrame && idx <= outFrame;
+    const hasCamKey = camTrack.enabled && camKeyframeIndices.has(idx);
+
     const item = document.createElement('div');
     item.dataset.frameIndex = idx;
     item.title = `Frame ${idx + 1} — click to select · right-click for options`;
     item.className = `flex-shrink-0 w-24 h-24 rounded-xl border flex flex-col items-center justify-between p-1.5 cursor-pointer transition relative group select-none ${
       isActive
-        ? 'bg-indigo-950/70 border-indigo-500 shadow-md shadow-indigo-600/20'
-        : 'bg-zinc-850/60 border-zinc-800 hover:border-zinc-700'
-    } ${inLoop ? 'border-t-2 border-t-emerald-500' : ''}`;
+        ? 'bg-blue-950/70 border-blue-500 shadow-md shadow-blue-600/20'
+        : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+    } ${inLoop ? 'border-t-2 border-t-sky-500' : ''}`;
     const tagHtml = frame.tag
       ? `<span class="text-[9px] font-bold px-1 py-0.5 rounded ${
           frame.tag.includes('Key')
-            ? 'bg-amber-500/90 text-zinc-950'
+            ? 'bg-orange-500/90 text-slate-950'
             : frame.tag.includes('Break')
-              ? 'bg-indigo-500 text-white'
-              : 'bg-zinc-700 text-zinc-300'
+              ? 'bg-blue-500 text-white'
+              : 'bg-slate-700 text-slate-300'
         }">${frame.tag.includes('Inbetween') ? 'Inbtw' : frame.tag}</span>`
       : '';
     const holdHtml =
       (frame.duration || 1) > 1
-        ? `<span class="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/90 text-zinc-950">×${frame.duration}</span>`
+        ? `<span class="text-[9px] font-bold px-1 py-0.5 rounded bg-orange-500/90 text-slate-950">×${frame.duration}</span>`
         : '';
+    const camKeyHtml = hasCamKey
+      ? `<span title="Camera Keyframe (◆)" class="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500 text-slate-950 shadow-xs">◆</span>`
+      : '';
+
     item.innerHTML = `
       <div class="flex items-center justify-between w-full text-[10px] font-mono">
-        <span class="frame-num-label ${isActive ? 'text-indigo-300 font-bold' : 'text-zinc-400'}">#${idx + 1}</span>
-        <span class="flex items-center gap-1">${holdHtml}${tagHtml}</span>
+        <span class="frame-num-label ${isActive ? 'text-blue-300 font-bold' : 'text-slate-400'}">#${idx + 1}</span>
+        <span class="flex items-center gap-0.5">${camKeyHtml}${holdHtml}${tagHtml}</span>
       </div>
-      <div class="absolute bottom-0.5 left-1.5 right-1.5 h-0.5 rounded bg-zinc-800 overflow-hidden">
-        <div class="h-full bg-amber-400" style="width: ${Math.min(100, ((frame.duration || 1) / 4) * 100)}%"></div>
+      <div class="absolute bottom-0.5 left-1.5 right-1.5 h-0.5 rounded bg-slate-800 overflow-hidden">
+        <div class="h-full bg-orange-400" style="width: ${Math.min(100, ((frame.duration || 1) / 4) * 100)}%"></div>
       </div>
     `;
     const thumbCanvas = document.createElement('canvas');
     thumbCanvas.width = THUMB_W;
     thumbCanvas.height = THUMB_H;
-    thumbCanvas.className = 'w-16 h-12 rounded bg-white object-contain border border-zinc-700/60 mt-1';
+    thumbCanvas.className = 'w-16 h-12 rounded bg-white object-contain border border-slate-700/60 mt-1';
     item.appendChild(thumbCanvas);
 
     item.addEventListener('click', () => {
@@ -91,17 +111,17 @@ export function updateFilmstripActiveState() {
   items.forEach((item) => {
     const idx = parseInt(item.dataset.frameIndex, 10);
     const isActive = idx === state.currentFrameIndex;
-    item.classList.toggle('bg-indigo-950/70', isActive);
-    item.classList.toggle('border-indigo-500', isActive);
+    item.classList.toggle('bg-blue-950/70', isActive);
+    item.classList.toggle('border-blue-500', isActive);
     item.classList.toggle('shadow-md', isActive);
-    item.classList.toggle('shadow-indigo-600/20', isActive);
-    item.classList.toggle('bg-zinc-850/60', !isActive);
-    item.classList.toggle('border-zinc-800', !isActive);
+    item.classList.toggle('shadow-blue-600/20', isActive);
+    item.classList.toggle('bg-slate-900/60', !isActive);
+    item.classList.toggle('border-slate-800', !isActive);
     const numEl = item.querySelector('.frame-num-label');
     if (numEl) {
-      numEl.classList.toggle('text-indigo-300', isActive);
+      numEl.classList.toggle('text-blue-300', isActive);
       numEl.classList.toggle('font-bold', isActive);
-      numEl.classList.toggle('text-zinc-400', !isActive);
+      numEl.classList.toggle('text-slate-400', !isActive);
     }
   });
 }
@@ -112,7 +132,7 @@ export function setReorderIndicator(idx) {
   items.forEach((item) => {
     const i = parseInt(item.dataset.frameIndex, 10);
     item.classList.toggle('ring-2', i === idx);
-    item.classList.toggle('ring-indigo-400', i === idx);
+    item.classList.toggle('ring-blue-400', i === idx);
   });
 }
 
@@ -120,7 +140,7 @@ export function clearReorderIndicator() {
   if (!elements.filmstripScrollArea) return;
   const items = elements.filmstripScrollArea.querySelectorAll('[data-frame-index]');
   items.forEach((item) => {
-    item.classList.remove('ring-2', 'ring-indigo-400', 'opacity-60');
+    item.classList.remove('ring-2', 'ring-blue-400', 'opacity-60');
   });
 }
 
@@ -134,7 +154,7 @@ export function getFrameMenu() {
   frameMenuEl = document.createElement('div');
   frameMenuEl.id = 'frame-context-menu';
   frameMenuEl.className =
-    'fixed z-[100] min-w-[230px] bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-1.5 hidden select-none text-xs';
+    'fixed z-[100] min-w-[230px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1.5 hidden select-none text-xs';
   document.body.appendChild(frameMenuEl);
 
   window.addEventListener(
@@ -207,46 +227,46 @@ export function showFrameContextMenu(idx, clientX, clientY) {
   const last = state.project.frames.length - 1;
   const canDelete = state.project.frames.length > 1;
 
-  const rowBtn = 'w-full text-left px-2 py-1.5 rounded-lg text-zinc-200 hover:bg-zinc-800 transition';
+  const rowBtn = 'w-full text-left px-2 py-1.5 rounded-lg text-slate-200 hover:bg-slate-800 transition';
   const chip = (active) =>
     `px-2 py-1 rounded-lg border font-semibold transition ${
       active
-        ? 'bg-indigo-600 border-indigo-500 text-white'
-        : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+        ? 'bg-blue-600 border-blue-500 text-white'
+        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
     }`;
   const tagChip = (active) =>
     `px-2 py-1 rounded-lg border font-semibold transition ${
       active
-        ? 'bg-amber-500 border-amber-400 text-zinc-950'
-        : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+        ? 'bg-orange-500 border-orange-400 text-slate-950'
+        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
     }`;
 
   menu.innerHTML = `
-    <div class="px-2 py-1 text-[10px] font-mono text-zinc-500">FRAME ${idx + 1}</div>
-    <button data-action="duplicate" class="${rowBtn}">Duplicate Frame <span class="text-zinc-500 font-mono">Ctrl+D</span></button>
-    <div class="my-1 h-px bg-zinc-800"></div>
-    <div class="px-2 py-1 text-[10px] text-zinc-500">HOLD / EXPOSURE</div>
+    <div class="px-2 py-1 text-[10px] font-mono text-slate-500">FRAME ${idx + 1}</div>
+    <button data-action="duplicate" class="${rowBtn}">Duplicate Frame <span class="text-slate-500 font-mono">Ctrl+D</span></button>
+    <div class="my-1 h-px bg-slate-800"></div>
+    <div class="px-2 py-1 text-[10px] text-slate-500">HOLD / EXPOSURE</div>
     <div class="flex gap-1 px-1.5 pb-1.5">
       ${[1, 2, 3, 4].map((n) => `<button data-action="hold" data-hold="${n}" class="${chip(dur === n)}">${n}×</button>`).join('')}
     </div>
-    <div class="px-2 py-1 text-[10px] text-zinc-500">TAG</div>
+    <div class="px-2 py-1 text-[10px] text-slate-500">TAG</div>
     <div class="flex gap-1 px-1.5 pb-1.5 flex-wrap">
       <button data-action="tag" data-tag="Key" class="${tagChip(tag.includes('Key'))}">Key</button>
       <button data-action="tag" data-tag="Breakdown" class="${tagChip(tag.includes('Break'))}">Break</button>
       <button data-action="tag" data-tag="Inbetween" class="${tagChip(tag === 'Inbetween')}">Inbetween</button>
       <button data-action="tag" data-tag="" class="${chip(!tag)}">None</button>
     </div>
-    <div class="my-1 h-px bg-zinc-800"></div>
+    <div class="my-1 h-px bg-slate-800"></div>
     <button data-action="move-left" class="${rowBtn}" ${idx === 0 ? 'disabled style="opacity:.35"' : ''}>← Move Left</button>
     <button data-action="move-right" class="${rowBtn}" ${idx === last ? 'disabled style="opacity:.35"' : ''}>Move Right →</button>
-    <div class="my-1 h-px bg-zinc-800"></div>
-    <div class="px-2 py-1 text-[10px] text-zinc-500">LOOP RANGE</div>
+    <div class="my-1 h-px bg-slate-800"></div>
+    <div class="px-2 py-1 text-[10px] text-slate-500">LOOP RANGE</div>
     <button data-action="loop-in" class="${rowBtn}">Set Loop In (Start)</button>
     <button data-action="loop-out" class="${rowBtn}">Set Loop Out (End)</button>
     <button data-action="loop-clear" class="${rowBtn}">Clear Loop Range</button>
     <button data-action="clear" class="${rowBtn}">Clear Drawing (active layer)</button>
-    <div class="my-1 h-px bg-zinc-800"></div>
-    <button data-action="delete" class="w-full text-left px-2 py-1.5 rounded-lg text-red-300 hover:bg-red-900/50 transition ${canDelete ? '' : 'opacity-35'}" ${canDelete ? '' : 'disabled'}>Delete Frame</button>
+    <div class="my-1 h-px bg-slate-800"></div>
+    <button data-action="delete" class="w-full text-left px-2 py-1.5 rounded-lg text-orange-400 hover:bg-orange-950/60 transition ${canDelete ? '' : 'opacity-35'}" ${canDelete ? '' : 'disabled'}>Delete Frame</button>
   `;
   menu.classList.remove('hidden');
   const rect = menu.getBoundingClientRect();
@@ -267,4 +287,96 @@ export function setupFilmstripScroll() {
     { passive: false }
   );
 }
+
+export function isTimelineCollapsed() {
+  const timeline = elements.studioTimeline || document.getElementById('studio-timeline');
+  return timeline ? timeline.classList.contains('timeline-collapsed') : false;
+}
+
+/**
+ * Toggles timeline between full filmstrip (176px) and compact bottom bar (40px)
+ */
+export function toggleTimelineCollapse(forceState) {
+  const timeline = elements.studioTimeline || document.getElementById('studio-timeline');
+  if (!timeline) return;
+
+  const shouldCollapse = forceState !== undefined 
+    ? forceState 
+    : !timeline.classList.contains('timeline-collapsed');
+
+  const waveform = document.getElementById('timeline-waveform-wrap');
+  const filmstrip = document.getElementById('filmstrip-scroll-area');
+  const toggleIcon = document.getElementById('icon-timeline-collapse');
+  const toggleLabel = document.getElementById('label-timeline-collapse');
+  const toggleBtn = document.getElementById('btn-toggle-timeline');
+
+  if (shouldCollapse) {
+    timeline.classList.add('timeline-collapsed');
+    timeline.classList.remove('h-44');
+    timeline.classList.add('h-10');
+
+    if (waveform) waveform.classList.add('hidden');
+    if (filmstrip) filmstrip.classList.add('hidden');
+    if (toggleIcon) toggleIcon.style.transform = 'rotate(180deg)';
+    if (toggleLabel) toggleLabel.textContent = 'Expand';
+    if (toggleBtn) {
+      toggleBtn.title = 'Expand Full Filmstrip (\\)';
+      toggleBtn.classList.add('text-orange-400');
+    }
+  } else {
+    timeline.classList.remove('timeline-collapsed');
+    timeline.classList.remove('h-10');
+    timeline.classList.add('h-44');
+
+    if (waveform) waveform.classList.remove('hidden');
+    if (filmstrip) filmstrip.classList.remove('hidden');
+    if (toggleIcon) toggleIcon.style.transform = 'rotate(0deg)';
+    if (toggleLabel) toggleLabel.textContent = 'Bar';
+    if (toggleBtn) {
+      toggleBtn.title = 'Collapse Timeline to Bar (\\)';
+      toggleBtn.classList.remove('text-orange-400');
+    }
+
+    renderTimelineFilmstrip();
+    renderTimelineWaveform();
+  }
+
+  try {
+    localStorage.setItem('mannsejro_timeline_collapsed', shouldCollapse ? 'true' : 'false');
+  } catch (e) {}
+
+  // Resize canvas stage and re-render viewport
+  requestRender();
+  setTimeout(() => {
+    requestRender();
+    if (!shouldCollapse) renderTimelineWaveform();
+  }, 240);
+}
+
+/**
+ * Sets up click, double-click, and saved-preference listeners
+ */
+export function setupTimelineCollapse() {
+  const toggleBtn = document.getElementById('btn-toggle-timeline');
+  toggleBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleTimelineCollapse();
+  });
+
+  // Double-click empty area on header bar to toggle
+  const headerBar = document.getElementById('timeline-header-bar');
+  headerBar?.addEventListener('dblclick', (e) => {
+    if (e.target.closest('button') || e.target.closest('select') || e.target.closest('input') || e.target.closest('label')) return;
+    toggleTimelineCollapse();
+  });
+
+  // Restore saved preference
+  try {
+    const saved = localStorage.getItem('mannsejro_timeline_collapsed');
+    if (saved === 'true') {
+      toggleTimelineCollapse(true);
+    }
+  } catch (e) {}
+}
+
 

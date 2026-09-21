@@ -96,8 +96,8 @@ export async function createBouncingBallProject() {
     backgroundColor: '#ffffff',
     camera: { x: width / 2, y: height / 2, rotation: 0, scale: 1, locked: false },
     layers: [
-      { id: 'layer_bg', name: 'Background / Ground', visible: true, locked: true, opacity: 0.8, blendMode: 'source-over', clippingMask: false, alphaLocked: false, colorTag: null },
-      { id: 'layer_ball', name: 'Animation / Ball', visible: true, locked: false, opacity: 1, blendMode: 'source-over', clippingMask: false, alphaLocked: false, colorTag: null },
+      { id: 'layer_bg', name: 'Background / Ground', visible: true, locked: true, persistent: true, opacity: 0.8, blendMode: 'source-over', clippingMask: false, alphaLocked: false, colorTag: null },
+      { id: 'layer_ball', name: 'Animation / Ball', visible: true, locked: false, persistent: false, opacity: 1, blendMode: 'source-over', clippingMask: false, alphaLocked: false, colorTag: null },
     ],
     frames,
     referenceMedia: [],

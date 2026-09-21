@@ -2,8 +2,9 @@
 import { state, playbackTimer } from '../state/appState.js';
 import { elements } from '../state/domElements.js';
 import { requestRender } from '../render/renderEngine.js';
-import { updateFilmstripActiveState } from './filmstrip.js';
+import { updateFilmstripActiveState, renderTimelineWaveform } from './filmstrip.js';
 import { onTimelinePlaybackStart, onTimelinePlaybackStop, syncVideoReferences } from '../ui/referenceUI.js';
+import { audioEngine } from '../audio/audioEngine.js';
 
 let playbackTickMap = [];
 let playbackTickIndex = 0;
@@ -38,10 +39,17 @@ export function updateTimecode() {
 export function setFrameIndex(idx) {
   if (!state.project?.frames) return;
   state.currentFrameIndex = Math.max(0, Math.min(state.project.frames.length - 1, idx));
+
+  // Audio scrub micro-slice with pop-free cosine envelope
+  if (!state.isPlaying) {
+    audioEngine.scrubToFrame(state.currentFrameIndex, state.project.fps || 12);
+  }
+
   if (elements.currentFrameNum) elements.currentFrameNum.textContent = state.currentFrameIndex + 1;
   if (elements.totalFramesNum) elements.totalFramesNum.textContent = state.project.frames.length;
   requestRender();
   updateFilmstripActiveState();
+  renderTimelineWaveform();
   syncVideoReferences();
   updateTimecode();
 }
@@ -63,6 +71,8 @@ export function startPlaybackInterval() {
     if (nextTick >= playbackTickMap.length) {
       if (state.loop) {
         playbackTickIndex = 0;
+        // Loop audio
+        audioEngine.startPlayback(0, state.project?.fps || 12);
       } else {
         stopPlayback();
         return;
@@ -80,6 +90,9 @@ export function startPlayback() {
   if (elements.iconPlay) elements.iconPlay.classList.add('hidden');
   if (elements.iconPause) elements.iconPause.classList.remove('hidden');
   
+  // Synchronized audio start
+  audioEngine.startPlayback(state.currentFrameIndex, state.project?.fps || 12);
+
   // Hardware-accelerate reference video playback
   onTimelinePlaybackStart();
   startPlaybackInterval();
@@ -87,6 +100,8 @@ export function startPlayback() {
 
 export function stopPlayback() {
   state.isPlaying = false;
+  audioEngine.stopPlayback();
+
   if (playbackTimer.id) {
     clearInterval(playbackTimer.id);
     playbackTimer.id = null;
@@ -97,3 +112,4 @@ export function stopPlayback() {
   // Pause and seek reference video to exact millisecond timestamp
   onTimelinePlaybackStop();
 }
+

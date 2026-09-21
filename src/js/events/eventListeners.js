@@ -3,20 +3,24 @@ import { state, currentFrame, hasSelection, SHAPE_TOOLS } from '../state/appStat
 import { elements } from '../state/domElements.js';
 import { screenToWorld, zoomAtPointer, centerCameraInView, setupCameraHandles } from '../viewport/camera.js';
 import { requestRender, sampleWorldColor } from '../render/renderEngine.js';
-import { clearSelectionPixels } from '../render/strokeRenderer.js';
-import { renderTimelineFilmstrip, setupFilmstripScroll } from '../timeline/filmstrip.js';
+import { renderTimelineFilmstrip, setupFilmstripScroll, renderTimelineWaveform } from '../timeline/filmstrip.js';
 import { setFrameIndex, togglePlayback, stopPlayback } from '../timeline/playback.js';
 import { addFrameAfter, duplicateFrameAt, clearFrameAt, deleteFrameAt } from '../timeline/frameOperations.js';
 import { renderLayersList, setupLayersInteractions, mergeLayerDown, duplicateLayer, deleteLayer } from '../ui/layersUI.js';
-import { setToolByName } from '../ui/colorPalettes.js';
+import { setToolByName, setEngineMode } from '../ui/colorPalettes.js';
 import { undo, redo, saveHistoryState } from '../project/history.js';
 import { exportProjectFile, updateHeaderInfo, isValidProject, confirmReplaceProject } from '../project/projectManager.js';
-import { scheduleAutosave } from '../project/autosave.js';
+import { scheduleAutosave, flushAutosave } from '../project/autosave.js';
 import { showToast } from '../ui/toast.js';
 import { copyTiles, floodFillTiles } from '../infiniteCanvas.js';
 import { floodFill } from '../colorUtils.js';
 import { exportVideo, exportSpritesheet, exportPngSequenceZip, exportAnimatedGif, exportCurrentFrameAsPng } from '../exportEngine.js';
 import { createBouncingBallProject, createBlankProject } from '../templates.js';
+import { CameraTrack } from '../viewport/cameraTrack.js';
+import { audioEngine } from '../audio/audioEngine.js';
+import { exportProductionMP4, exportProductionGIF, exportStoryboardSheet } from '../export/ffmpegExporter.js';
+import { setLocale, getLocale } from '../i18n/i18n.js';
+import { fileToDataUrl, persistMediaBlob } from '../storage/mediaVault.js';
 import {
   renderReferenceList,
   renderReferenceOverlays,
@@ -28,6 +32,8 @@ import {
 } from '../ui/referenceUI.js';
 import { setupCanvasEvents } from './canvasEvents.js';
 import { setupKeyboardEvents } from './keyboardEvents.js';
+import { refreshQuickPaletteUI } from '../ui/quickPalette.js';
+import { renderColorStudioTab } from '../ui/artistPalettes.js';
 
 export function switchSidebarTab(tabName) {
   // Ensure sidepanel is visible
@@ -39,9 +45,11 @@ export function switchSidebarTab(tabName) {
   }
 
   // Update tab buttons inside segmented pill
-  document.querySelectorAll('.tab-btn').forEach((b) => {
-    const isTarget = b.getAttribute('data-tab') === tabName;
-    b.classList.toggle('active', isTarget);
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    const isTarget = btn.getAttribute('data-tab') === tabName;
+    btn.classList.toggle('active', isTarget);
+    btn.classList.toggle('text-white', isTarget);
+    btn.classList.toggle('text-zinc-400', !isTarget);
   });
 
   // Update rail icon buttons
@@ -60,7 +68,12 @@ export function switchSidebarTab(tabName) {
   // Show corresponding tab content
   document.querySelectorAll('.tab-panel').forEach((p) => p.classList.add('hidden'));
   const targetEl = document.getElementById(`tab-content-${tabName}`);
-  if (targetEl) targetEl.classList.remove('hidden');
+  if (targetEl) {
+    targetEl.classList.remove('hidden');
+    if (tabName === 'palettes') {
+      renderColorStudioTab(targetEl);
+    }
+  }
 }
 
 export function toggleSidepanel() {
@@ -89,11 +102,19 @@ export function setupEventListeners(loadProjectFn) {
         scheduleAutosave();
       }
     });
+    elements.projectNameInput.addEventListener('blur', () => {
+      if (state.project) {
+        scheduleAutosave(true);
+      }
+    });
   }
 
-  // Save / Open
+  // Save Project to System Vault (Flush immediately + toast feedback)
   if (elements.btnSaveProject) {
-    elements.btnSaveProject.addEventListener('click', exportProjectFile);
+    elements.btnSaveProject.addEventListener('click', async () => {
+      await flushAutosave();
+      showToast('Project saved to Studio Vault (Auto-save is active)', 'info');
+    });
   }
   if (elements.openProjectFileInput) {
     elements.openProjectFileInput.addEventListener('change', async (e) => {
@@ -185,11 +206,13 @@ export function setupEventListeners(loadProjectFn) {
   if (elements.primaryColorPicker) {
     elements.primaryColorPicker.addEventListener('input', (e) => {
       state.toolSettings.color = e.target.value;
+      refreshQuickPaletteUI();
     });
   }
   if (elements.secondaryColorPicker) {
     elements.secondaryColorPicker.addEventListener('input', (e) => {
       state.toolSettings.secondaryColor = e.target.value;
+      refreshQuickPaletteUI();
     });
   }
   if (elements.btnSwapColors) {
@@ -199,6 +222,7 @@ export function setupEventListeners(loadProjectFn) {
       state.toolSettings.secondaryColor = tmp;
       if (elements.primaryColorPicker) elements.primaryColorPicker.value = state.toolSettings.color;
       if (elements.secondaryColorPicker) elements.secondaryColorPicker.value = state.toolSettings.secondaryColor;
+      refreshQuickPaletteUI();
     });
   }
   if (elements.sliderBrushSize) {
@@ -230,6 +254,24 @@ export function setupEventListeners(loadProjectFn) {
       state.toolSettings.shapeFilled = e.target.checked;
     });
   }
+
+  // Engine Mode Switcher (Vector Space vs Pixel Space)
+  const btnModeVector = document.getElementById('btn-mode-vector');
+  const btnModePixel = document.getElementById('btn-mode-pixel');
+  if (btnModeVector) {
+    btnModeVector.addEventListener('click', () => setEngineMode('vector'));
+  }
+  if (btnModePixel) {
+    btnModePixel.addEventListener('click', () => setEngineMode('pixel'));
+  }
+
+  // Toolbar Tool Buttons
+  document.querySelectorAll('.tool-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tool = btn.getAttribute('data-tool');
+      if (tool) setToolByName(tool);
+    });
+  });
 
   // Sidebar Tabs & Rail Buttons
   document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -300,7 +342,12 @@ export function setupEventListeners(loadProjectFn) {
         active.opacity = parseInt(e.target.value, 10) / 100;
         if (elements.layerOpacityVal) elements.layerOpacityVal.textContent = `${Math.round(active.opacity * 100)}%`;
         requestRender();
+        scheduleAutosave(false);
       }
+    });
+    elements.sliderLayerOpacity.addEventListener('change', () => {
+      saveHistoryState();
+      scheduleAutosave(true);
     });
   }
   if (elements.selectLayerBlend) {
@@ -308,7 +355,10 @@ export function setupEventListeners(loadProjectFn) {
       const active = state.project?.layers.find((l) => l.id === state.activeLayerId);
       if (active) {
         active.blendMode = e.target.value;
+        renderLayersList();
         requestRender();
+        saveHistoryState();
+        scheduleAutosave(true);
       }
     });
   }
@@ -368,6 +418,34 @@ export function setupEventListeners(loadProjectFn) {
   if (elements.btnClearFrame) elements.btnClearFrame.addEventListener('click', () => clearFrameAt(state.currentFrameIndex));
   if (elements.btnDeleteFrame) elements.btnDeleteFrame.addEventListener('click', () => deleteFrameAt(state.currentFrameIndex));
 
+  // Keyframed Multiplane Camera & Audio Track
+  if (elements.btnKeyCamera) {
+    elements.btnKeyCamera.addEventListener('click', () => {
+      if (!state.project) return;
+      CameraTrack.setKeyframeAtCurrent(state.project, state.currentFrameIndex);
+      requestRender();
+      renderTimelineFilmstrip();
+      saveHistoryState();
+      scheduleAutosave();
+    });
+  }
+
+  if (elements.audioFileInput) {
+    elements.audioFileInput.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const info = await audioEngine.loadAudio(file);
+        showToast(`Loaded Audio: "${info.name}" (${info.duration.toFixed(1)}s)`);
+        renderTimelineWaveform();
+      } catch (err) {
+        showToast(`Failed to load audio: ${err.message}`, 'error');
+      } finally {
+        e.target.value = '';
+      }
+    });
+  }
+
   // Setup modular Canvas and Keyboard event systems
   setupCanvasEvents();
   setupKeyboardEvents();
@@ -412,7 +490,16 @@ export function setupEventListeners(loadProjectFn) {
         elements.exportProgressNum.textContent = `${p}%`;
       };
       try {
-        if (selectedExportType === 'frame') {
+        if (selectedExportType === 'video') {
+          elements.exportStatusLabel.textContent = 'Encoding H.264 MP4 with Audio…';
+          await exportProductionMP4(state.project, onProg);
+        } else if (selectedExportType === 'gif') {
+          elements.exportStatusLabel.textContent = 'Generating 2-Pass Palette GIF…';
+          await exportProductionGIF(state.project, onProg);
+        } else if (selectedExportType === 'storyboard') {
+          elements.exportStatusLabel.textContent = 'Assembling Storyboard Sheet…';
+          await exportStoryboardSheet(state.project);
+        } else if (selectedExportType === 'frame') {
           elements.exportStatusLabel.textContent = 'Rendering Current Keyframe PNG...';
           await exportCurrentFrameAsPng(
             state.project,
@@ -420,9 +507,6 @@ export function setupEventListeners(loadProjectFn) {
             `${state.project.name.toLowerCase().replace(/\s+/g, '_')}_frame_${state.currentFrameIndex + 1}.png`
           );
           onProg(100);
-        } else if (selectedExportType === 'video' || selectedExportType === 'gif') {
-          elements.exportStatusLabel.textContent = 'Rendering WebM Video Loop...';
-          await exportVideo(state.project, onProg);
         } else if (selectedExportType === 'spritesheet') {
           elements.exportStatusLabel.textContent = 'Assembling Spritesheet...';
           await exportSpritesheet(state.project, 4);
@@ -430,6 +514,10 @@ export function setupEventListeners(loadProjectFn) {
         } else if (selectedExportType === 'zip') {
           elements.exportStatusLabel.textContent = 'Archiving PNG Sequence...';
           await exportPngSequenceZip(state.project, onProg);
+        } else if (selectedExportType === 'json') {
+          elements.exportStatusLabel.textContent = 'Generating Project Backup (.json)...';
+          exportProjectFile(state.project);
+          onProg(100);
         }
       } catch (err) {
         showToast('Export failed: ' + err.message, 'error');
@@ -440,6 +528,16 @@ export function setupEventListeners(loadProjectFn) {
           elements.btnRunExport.disabled = false;
         }, 1000);
       }
+    });
+  }
+
+  // Language Selector wiring
+  const langSelect = document.getElementById('select-language');
+  if (langSelect) {
+    langSelect.value = getLocale();
+    langSelect.addEventListener('change', (e) => {
+      setLocale(e.target.value);
+      showToast(`Language set to ${e.target.selectedOptions[0]?.text || e.target.value}`);
     });
   }
 
@@ -497,18 +595,25 @@ export function setupEventListeners(loadProjectFn) {
 
   // Reference file input
   if (elements.refFileInput) {
-    elements.refFileInput.addEventListener('change', (e) => {
+    elements.refFileInput.addEventListener('change', async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
 
-      const url = URL.createObjectURL(file);
       const isVideo = file.type.startsWith('video');
+      const dataUrl = await fileToDataUrl(file); // Permanent Base64 Data URL
+      const tempUrl = URL.createObjectURL(file);
+      const refId = `ref_${Date.now()}`;
+
+      // Persist raw binary to IndexedDB media vault
+      await persistMediaBlob(refId, file);
 
       const ref = {
-        id: `ref_${Date.now()}`,
+        id: refId,
         name: file.name,
         type: isVideo ? 'video' : 'image',
-        url,
+        url: dataUrl,         // Use permanent Data URL directly so it never disappears
+        dataUrl: dataUrl,     // Permanent backup field
+        tempUrl: tempUrl,
         visible: true,
         mode: 'overlay',
         opacity: 0.6,
@@ -519,7 +624,7 @@ export function setupEventListeners(loadProjectFn) {
         rotation: 0,
         flipH: false,
         flipV: false,
-        locked: false,
+        locked: true, // LOCKED BY DEFAULT UPON IMPORT
         width: 640,
         height: 360,
         duration: null,
@@ -529,18 +634,27 @@ export function setupEventListeners(loadProjectFn) {
 
       const finalize = () => {
         fitReferenceToCamera(ref);
+        const hw = (ref.width * (ref.scale || 1)) / 2;
+        const hh = (ref.height * (ref.scale || 1)) / 2;
+        ref.corners = [
+          { x: ref.x - hw, y: ref.y - hh },
+          { x: ref.x + hw, y: ref.y - hh },
+          { x: ref.x + hw, y: ref.y + hh },
+          { x: ref.x - hw, y: ref.y + hh },
+        ];
+        ref.perspectiveMode = false;
         if (!state.project.referenceMedia) state.project.referenceMedia = [];
         state.project.referenceMedia.push(ref);
         renderReferenceList();
         updateReferenceOverlaysTransform();
-        saveHistoryState();
-        showToast(`Imported "${file.name}" (Fitted to camera)`);
+        saveHistoryState('Import Reference');
+        showToast(`Imported "${file.name}" (Locked by default — click lock icon to move)`);
       };
 
       if (isVideo) {
         const v = document.createElement('video');
         v.preload = 'metadata';
-        v.src = url;
+        v.src = tempUrl;
         v.onloadedmetadata = () => {
           ref.width = v.videoWidth || 640;
           ref.height = v.videoHeight || 360;
@@ -556,7 +670,7 @@ export function setupEventListeners(loadProjectFn) {
           finalize();
         };
         img.onerror = finalize;
-        img.src = url;
+        img.src = dataUrl;
       }
 
       e.target.value = '';
@@ -686,7 +800,7 @@ export function setupEventListeners(loadProjectFn) {
       rotation: 0,
       flipH: false,
       flipV: false,
-      locked: false,
+      locked: true,
       width: 640,
       height: 360,
       duration: null,

@@ -7,6 +7,16 @@ export { updateMarqueeDisplay, updateMarqueeDisplay as renderSelectionMarquee } 
 import { updateReferenceOverlaysTransform } from '../ui/referenceUI.js';
 import { rgbaToHex } from '../colorUtils.js';
 
+import { drawStroke, drawShape, drawPolygonShape } from '../canvasUtils.js';
+import { drawNodeQuad, drawActiveNodeQuad, updateNodeOverlayPositions } from '../viewport/nodeDraw.js';
+import { drawPerspectiveShape, renderPerspectiveHandles, perspectiveStudioState } from '../viewport/perspectiveRectangleStudio.js';
+import { polygonStudioState, renderActivePolygonOverlay } from '../viewport/polygonStudio.js';
+import { nodeToolState, drawActiveNodeTool, renderNodeNetworkToContext } from '../viewport/nodeTool.js';
+import { drawSelectionOverlay } from '../viewport/selectTool.js';
+import { paintScatterProp, paintStampProp } from './propsLibrary.js';
+import { CameraTrack } from '../viewport/cameraTrack.js';
+import { getPaperPattern, currentPaperPresetId, paperTextureEnabled } from './paperTextures.js';
+
 export function applyWorldTransform(ctx, rect) {
   ctx.translate(rect.width / 2 + state.pan.x, rect.height / 2 + state.pan.y);
   ctx.scale(state.zoom, state.zoom);
@@ -14,12 +24,43 @@ export function applyWorldTransform(ctx, rect) {
 
 export async function drawLayerTiles(ctx, frame, layer, vis) {
   if (!layer || !layer.visible) return;
-  const tiles = frame.layerData[layer.id]?.tiles;
-  if (!tiles) return;
+  const lData = frame.layerData[layer.id];
+  if (!lData) return;
+
   ctx.save();
   ctx.globalAlpha = layer.opacity !== undefined ? layer.opacity : 1;
   ctx.globalCompositeOperation = layer.blendMode || 'source-over';
-  await drawTilesInWorldRect(ctx, tiles, vis);
+
+  // 1. Draw raster tiles (backgrounds, fills, imported images) with high-quality smoothing
+  if (lData.tiles && Object.keys(lData.tiles).length > 0) {
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    await drawTilesInWorldRect(ctx, lData.tiles, vis);
+  }
+
+  // 2. Draw resolution-independent vector strokes (NEVER blurry, perfectly sharp at any zoom)
+  if (lData.strokes && lData.strokes.length > 0) {
+    for (const stroke of lData.strokes) {
+      if (stroke.isNodePath) {
+        renderNodeNetworkToContext(ctx, stroke.nodes, stroke.edges, stroke.settings);
+      } else if (stroke.isPerspectiveShape) {
+        drawPerspectiveShape(ctx, stroke);
+      } else if (stroke.isPolygon) {
+        drawPolygonShape(ctx, stroke);
+      } else if (stroke.isNodeQuad) {
+        drawNodeQuad(ctx, stroke);
+      } else if (stroke.isScatterProp) {
+        paintScatterProp(ctx, stroke.propId, stroke.points, stroke.settings?.color, stroke.settings?.size);
+      } else if (stroke.isStampProp) {
+        paintStampProp(ctx, stroke.propId, stroke.center, stroke.settings?.color, stroke.settings?.size);
+      } else if (stroke.isShape && stroke.shapeData) {
+        drawShape(ctx, stroke.tool, stroke.shapeData.start, stroke.shapeData.end, stroke.settings, stroke.shapeData.shiftKey);
+      } else {
+        drawStroke(ctx, stroke.points, stroke.tool, stroke.settings);
+      }
+    }
+  }
+
   ctx.restore();
 }
 
@@ -59,8 +100,7 @@ export async function drawLayerGroupWithClipping(ctx, frame, layers, vis, rect) 
       for (const child of clippedGroup) {
         bctx.save();
         bctx.globalCompositeOperation = 'source-atop';
-        bctx.globalAlpha = child.opacity !== undefined ? child.opacity : 1;
-        await drawTilesInWorldRect(bctx, frame.layerData[child.id]?.tiles, vis);
+        await drawLayerTiles(bctx, frame, child, vis);
         bctx.restore();
       }
 
@@ -223,8 +263,15 @@ export async function renderViewport() {
 
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = state.project?.backgroundColor || '#ffffff';
-  ctx.fillRect(0, 0, rect.width, rect.height);
+
+  const paper = getPaperPattern(ctx, state.toolSettings.paperPreset || currentPaperPresetId);
+  if (paper && paperTextureEnabled && state.toolSettings.paperTexture !== false) {
+    ctx.fillStyle = paper.pattern;
+    ctx.fillRect(0, 0, rect.width, rect.height);
+  } else {
+    ctx.fillStyle = state.project?.backgroundColor || '#ffffff';
+    ctx.fillRect(0, 0, rect.width, rect.height);
+  }
 
   const frame = currentFrame();
   if (!frame) {
@@ -265,6 +312,14 @@ export async function renderViewport() {
 
     // Live floating selection rendered in world coordinates on top of active layer
     drawFloatingSelectionWorld(ctx);
+
+    // Live active perspective node draw rendered in world coordinates
+    drawActiveNodeQuad(ctx);
+
+    // Live active perspective rectangle/cube rendered in world coordinates
+    if (perspectiveStudioState.active && perspectiveStudioState.nodes) {
+      drawPerspectiveShape(ctx, perspectiveStudioState);
+    }
   }
 
   if (state.showGrid) drawGrid(ctx, vis);
@@ -276,6 +331,30 @@ export async function renderViewport() {
 
   // Sticking reference transforms in lockstep with the infinite canvas world
   updateReferenceOverlaysTransform();
+
+  // Sticking node draw perspective handles in exact lockstep with camera world
+  updateNodeOverlayPositions();
+
+  // Active Perspective Studio high-performance canvas handles
+  if (perspectiveStudioState.active) {
+    renderPerspectiveHandles(ctx);
+  }
+
+  // Active Polygon Studio rubber-band & vertex handles
+  if (polygonStudioState.active) {
+    renderActivePolygonOverlay(ctx);
+  }
+
+  // Active Node Tool graph handles & rubber-band line
+  if (nodeToolState.active) {
+    drawActiveNodeTool(ctx);
+  }
+
+  // Active Select & Transform Tool bounding box & transform handles
+  drawSelectionOverlay(ctx);
+
+  // Camera Motion Path Trajectory & Keyframe Diamonds
+  CameraTrack.renderMotionPath(ctx, state.project);
 }
 
 export function requestRender() {
@@ -313,6 +392,29 @@ export async function sampleWorldColor(wx, wy) {
     ctx.drawImage(img, px * TILE - wx, py * TILE - wy);
     ctx.restore();
   }
+
+  // Also sample from visible reference media overlays in world space
+  if (state.project?.referenceMedia && elements.refOverlaysContainer) {
+    for (const ref of state.project.referenceMedia) {
+      if (!ref.visible || ref.mode !== 'overlay') continue;
+      const domEl = elements.refOverlaysContainer.querySelector(`[data-ref-id="${ref.id}"]`);
+      const mediaEl = domEl?.querySelector('img, video');
+      if (!mediaEl) continue;
+
+      const w = ref.width * (ref.scale || 1);
+      const h = ref.height * (ref.scale || 1);
+
+      ctx.save();
+      ctx.globalAlpha = ref.opacity !== undefined ? ref.opacity : 0.6;
+      ctx.globalCompositeOperation = ref.blendMode || 'source-over';
+      ctx.translate(ref.x - wx, ref.y - wy);
+      ctx.rotate(((ref.rotation || 0) * Math.PI) / 180);
+      ctx.scale(ref.flipH ? -1 : 1, ref.flipV ? -1 : 1);
+      ctx.drawImage(mediaEl, -w / 2, -h / 2, w, h);
+      ctx.restore();
+    }
+  }
+
   const d = ctx.getImageData(0, 0, 1, 1).data;
   return d[3] > 0 ? rgbaToHex(d[0], d[1], d[2]) : null;
 }

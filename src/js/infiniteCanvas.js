@@ -35,13 +35,20 @@ export function cameraWorldAABB(camera, pw, ph) {
   return { x: camera.x - ex, y: camera.y - ey, w: ex * 2, h: ey * 2 };
 }
 
-// ---- Decoded-tile image cache (keyed by dataURL → auto-invalidates on change) ----
+// ---- Decoded-tile image cache (keyed by dataURL or ImageBitmap) ----
 const imgCache = new Map();
 const IMG_CACHE_MAX = 500;
 
-export function getTileImage(dataUrl) {
-  if (!dataUrl) return Promise.resolve(null);
-  if (imgCache.has(dataUrl)) return Promise.resolve(imgCache.get(dataUrl));
+export function getTileImage(source) {
+  if (!source) return Promise.resolve(null);
+  if (typeof ImageBitmap !== 'undefined' && source instanceof ImageBitmap) {
+    return Promise.resolve(source);
+  }
+  if (source instanceof HTMLImageElement || source instanceof HTMLCanvasElement || (typeof OffscreenCanvas !== 'undefined' && source instanceof OffscreenCanvas)) {
+    return Promise.resolve(source);
+  }
+  if (typeof source !== 'string') return Promise.resolve(null);
+  if (imgCache.has(source)) return Promise.resolve(imgCache.get(source));
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -49,11 +56,11 @@ export function getTileImage(dataUrl) {
         const first = imgCache.keys().next().value;
         imgCache.delete(first);
       }
-      imgCache.set(dataUrl, img);
+      imgCache.set(source, img);
       resolve(img);
     };
     img.onerror = () => resolve(null);
-    img.src = dataUrl;
+    img.src = source;
   });
 }
 
@@ -72,7 +79,7 @@ export async function drawTilesInWorldRect(ctx, tilesMap, rect) {
 // Write a world-positioned source canvas into every tile it overlaps. `op` is a
 // globalCompositeOperation ('source-over' for ink, 'destination-out' for eraser,
 // 'multiply' for marker). Mutates `tiles`.
-export async function blitCanvasIntoTiles(tiles, src, srcX, srcY, op = 'source-over') {
+export async function blitCanvasIntoTiles(tiles, src, srcX, srcY, op = 'source-over', alpha = 1) {
   const { x0, y0, x1, y1 } = tileRangeForRect(srcX, srcY, src.width, src.height);
   for (let cy = y0; cy <= y1; cy++) {
     for (let cx = x0; cx <= x1; cx++) {
@@ -88,9 +95,14 @@ export async function blitCanvasIntoTiles(tiles, src, srcX, srcY, op = 'source-o
       }
       tctx.save();
       tctx.globalCompositeOperation = op;
+      tctx.globalAlpha = alpha;
       tctx.drawImage(src, srcX - cx * TILE, srcY - cy * TILE);
       tctx.restore();
-      tiles[key] = c.toDataURL('image/png');
+      
+      // ZERO FLICKER: Store the canvas directly in cache before generating string
+      const dataUrl = c.toDataURL('image/png');
+      imgCache.set(dataUrl, c);
+      tiles[key] = dataUrl;
     }
   }
 }

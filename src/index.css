@@ -2,7 +2,7 @@
 
 @layer base {
   body {
-    @apply bg-zinc-950 text-zinc-100 antialiased select-none overflow-hidden;
+    @apply bg-slate-950 text-white antialiased select-none overflow-hidden;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
 }
@@ -13,10 +13,10 @@
   height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(24, 24, 27, 0.4);
+  background: rgba(15, 23, 42, 0.6);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(82, 82, 91, 0.5);
+  background: rgba(71, 85, 105, 0.5);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
@@ -25,19 +25,80 @@
 
 /* Segmented Pill Control (Tactile & Clean) */
 .segmented-pill-wrap {
-  @apply flex bg-zinc-900/90 p-1 rounded-xl border border-zinc-800 text-xs font-semibold select-none gap-1;
+  @apply flex bg-slate-900/90 p-1 rounded-xl border border-slate-800 text-xs font-semibold select-none gap-1;
 }
 .segmented-pill-item {
-  @apply flex-1 py-1.5 px-2 text-center text-zinc-400 rounded-lg transition-all duration-150 cursor-pointer border border-transparent flex items-center justify-center;
+  @apply flex-1 py-1.5 px-2 text-center text-slate-400 rounded-lg transition-all duration-150 cursor-pointer border border-transparent flex items-center justify-center;
 }
 .segmented-pill-item:hover {
-  @apply text-zinc-200 bg-zinc-800/60;
+  @apply text-slate-200 bg-slate-800/60;
 }
 .segmented-pill-item.active {
-  @apply bg-zinc-800 text-white shadow-xs border-b-2 border-orange-500 font-bold;
+  @apply bg-slate-800 text-white shadow-xs border-b-2 border-orange-500 font-bold;
 }
 .segmented-pill-item.active-amber {
   @apply bg-orange-500/20 text-orange-300 shadow-xs border border-orange-500/50 font-bold;
+}
+
+/* ========================================================
+   IMAGE 1 SPEC: SIDEPANEL DESIGN SYSTEM
+   ======================================================== */
+
+/* Tactile Accordion Card */
+.spec-card {
+  @apply bg-slate-900/80 border border-slate-800/90 rounded-2xl p-3.5 space-y-3 shadow-sm transition-all;
+}
+
+/* Uppercase Micro-Header */
+.spec-header {
+  @apply text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between select-none;
+}
+
+/* Image 1 Segmented Pill Container */
+.spec-pill-container {
+  @apply flex bg-slate-950/80 p-1 rounded-xl border border-slate-800 text-xs font-semibold select-none;
+}
+
+/* Individual Pill Button */
+.spec-pill-btn {
+  @apply flex-1 py-1.5 px-2 text-center text-slate-400 rounded-lg transition-all duration-150 cursor-pointer truncate;
+}
+.spec-pill-btn:hover {
+  @apply text-slate-200 bg-slate-800/60;
+}
+.spec-pill-btn.active {
+  @apply bg-orange-500 text-white font-bold shadow-md shadow-orange-500/20;
+}
+.spec-pill-btn.active-blue {
+  @apply bg-blue-600 text-white font-bold shadow-md shadow-blue-600/20;
+}
+.spec-pill-btn.active-dark {
+  @apply bg-slate-800 text-white font-bold shadow-xs border-b-2 border-orange-500;
+}
+
+/* Slender Hardware Slider */
+.spec-slider {
+  @apply w-full accent-orange-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer transition-opacity;
+}
+
+/* iOS/Desktop Spring Toggle */
+.spec-toggle {
+  @apply relative inline-block w-9 h-5 bg-slate-700 rounded-full transition-colors cursor-pointer;
+}
+.spec-toggle::after {
+  content: '';
+  @apply absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full transition-all;
+}
+.peer:checked + .spec-toggle {
+  @apply bg-orange-500;
+}
+.peer:checked + .spec-toggle::after {
+  @apply translate-x-4;
+}
+
+/* Quick Micro-Preset Pill */
+.spec-chip {
+  @apply px-2 py-0.5 rounded-lg bg-slate-800/80 hover:bg-orange-500/20 hover:text-orange-300 border border-slate-700/60 hover:border-orange-500/40 text-[10px] font-mono text-slate-300 transition-all cursor-pointer;
 }
 
 /* Horizontal Quick-Select Carousel Chips */
@@ -45,7 +106,7 @@
   @apply flex items-center gap-1 overflow-x-auto py-1 text-xs select-none;
 }
 .carousel-chip {
-  @apply px-2.5 py-1 rounded-lg bg-zinc-800/80 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/60 font-mono text-[11px] transition-all cursor-pointer whitespace-nowrap shrink-0;
+  @apply px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700/60 font-mono text-[11px] transition-all cursor-pointer whitespace-nowrap shrink-0;
 }
 .carousel-chip.active {
   @apply bg-orange-500/20 text-orange-400 border-orange-500/60 font-bold shadow-xs ring-1 ring-orange-500/30;
@@ -53,7 +114,7 @@
 
 /* Floating Islands */
 .floating-island {
-  @apply bg-zinc-900/90 backdrop-blur-md border border-zinc-800/90 rounded-2xl shadow-2xl;
+  @apply bg-slate-900/90 backdrop-blur-md border border-slate-800/90 rounded-2xl shadow-2xl;
 }
 
 /* Active tool button styling */
@@ -73,11 +134,11 @@
 }
 
 .canvas-checkerboard-dark {
-  background-color: #18181b;
-  background-image: linear-gradient(45deg, #27272a 25%, transparent 25%),
-    linear-gradient(-45deg, #27272a 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #27272a 75%),
-    linear-gradient(-45deg, transparent 75%, #27272a 75%);
+  background-color: #0f172a; /* slate-900 */
+  background-image: linear-gradient(45deg, #1e293b 25%, transparent 25%),
+    linear-gradient(-45deg, #1e293b 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #1e293b 75%),
+    linear-gradient(-45deg, transparent 75%, #1e293b 75%);
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
 }
@@ -97,18 +158,18 @@
   animation: marchingAnts 0.8s linear infinite;
 }
 
-/* Sprint B: dim the workspace outside the camera capture area */
+/* Dim the workspace outside the camera capture area */
 .camera-dim {
-  box-shadow: 0 0 0 9999px rgba(9, 9, 11, 0.45);
+  box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.55);
 }
 
 /* ---- MannSejro Studio splash screen ---- */
 #splash-screen {
   transition: opacity 0.55s ease, visibility 0.55s ease;
   background:
-    radial-gradient(1200px 600px at 50% -10%, rgba(249, 115, 22, 0.18), transparent 60%),
-    radial-gradient(900px 500px at 50% 120%, rgba(234, 88, 12, 0.12), transparent 60%),
-    #09090b;
+    radial-gradient(1200px 600px at 50% -10%, rgba(59, 130, 246, 0.15), transparent 60%), /* Blue Glow */
+    radial-gradient(900px 500px at 50% 120%, rgba(249, 115, 22, 0.15), transparent 60%), /* Orange Glow */
+    #020617; /* slate-950 */
 }
 #splash-screen.splash-hidden {
   opacity: 0;
@@ -138,8 +199,14 @@
 
 /* Selected Aspect Ratio Glowing Card */
 .aspect-btn.active-aspect {
-  box-shadow: 0 0 15px rgba(249, 115, 22, 0.2);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.25); /* Blue glow instead of orange */
 }
 
-
+/* Collapsible Timeline Transitions */
+#studio-timeline {
+  transition: height 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+#studio-timeline.timeline-collapsed {
+  height: 2.5rem !important; /* 40px (h-10) */
+}
 

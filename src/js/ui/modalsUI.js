@@ -1,7 +1,7 @@
 import { elements } from '../state/domElements.js';
 import { exportVideo, exportSpritesheet, exportPngSequenceZip, exportAnimatedGif } from '../exportEngine.js';
 import { state } from '../state/appState.js';
-import { loadProjectIntoStudio, confirmReplaceProject } from '../project/projectManager.js';
+import { loadProjectIntoStudio, confirmReplaceProject, exportProjectFile } from '../project/projectManager.js';
 import { createBouncingBallProject, createBlankProject } from '../templates.js';
 
 export function setupModalsUI() {
@@ -27,11 +27,11 @@ export function setupModalsUI() {
   document.querySelectorAll('.export-type-btn').forEach((b) => {
     b.addEventListener('click', () => {
       document.querySelectorAll('.export-type-btn').forEach((btn) => {
-        btn.classList.remove('active-export', 'border-indigo-500', 'bg-indigo-950/60', 'text-indigo-300');
-        btn.classList.add('border-zinc-700/60', 'bg-zinc-800/50', 'text-zinc-400');
+        btn.classList.remove('active-export', 'border-blue-500', 'bg-blue-950/60', 'text-blue-300');
+        btn.classList.add('border-slate-700/60', 'bg-slate-800/50', 'text-slate-400');
       });
-      b.classList.add('active-export', 'border-indigo-500', 'bg-indigo-950/60', 'text-indigo-300');
-      b.classList.remove('border-zinc-700/60', 'bg-zinc-800/50', 'text-zinc-400');
+      b.classList.add('active-export', 'border-blue-500', 'bg-blue-950/60', 'text-blue-300');
+      b.classList.remove('border-slate-700/60', 'bg-slate-800/50', 'text-slate-400');
       selectedExportType = b.getAttribute('data-export-type');
     });
   });
@@ -57,6 +57,10 @@ export function setupModalsUI() {
       } else if (selectedExportType === 'zip') {
         elements.exportStatusLabel.textContent = 'Archiving PNG Sequence...';
         await exportPngSequenceZip(state.project || window.__animationState.project, onProg);
+      } else if (selectedExportType === 'json') {
+        elements.exportStatusLabel.textContent = 'Generating Project Backup (.json)...';
+        exportProjectFile(state.project || window.__animationState.project);
+        onProg(100);
       }
       setTimeout(() => {
         elements.exportProgressWrap.classList.add('hidden');

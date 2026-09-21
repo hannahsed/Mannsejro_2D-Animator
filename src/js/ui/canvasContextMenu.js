@@ -20,7 +20,7 @@ export function setupCanvasContextMenu() {
   canvasMenuEl = document.createElement('div');
   canvasMenuEl.id = 'canvas-context-menu';
   canvasMenuEl.className =
-    'fixed z-[120] min-w-[200px] bg-zinc-900/95 backdrop-blur-md border border-zinc-700/80 rounded-2xl shadow-2xl p-1.5 hidden select-none text-xs text-zinc-200';
+    'fixed z-[120] min-w-[200px] bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 hidden select-none text-xs text-slate-200';
   document.body.appendChild(canvasMenuEl);
 
   window.addEventListener(
@@ -47,22 +47,22 @@ export function setupCanvasContextMenu() {
 
     const row = (act, label, kbd = '', danger = false) => `
       <button data-c-act="${act}" class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition ${
-        danger ? 'text-rose-400 hover:bg-rose-950/50' : 'hover:bg-zinc-800 text-zinc-200'
+        danger ? 'text-orange-400 hover:bg-orange-950/50' : 'hover:bg-slate-800 text-slate-200'
       }">
         <span>${label}</span>
-        ${kbd ? `<span class="text-[10px] font-mono text-zinc-500">${kbd}</span>` : ''}
+        ${kbd ? `<span class="text-[10px] font-mono text-slate-500">${kbd}</span>` : ''}
       </button>
     `;
 
     canvasMenuEl.innerHTML = `
-      <div class="px-2.5 py-1 text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Canvas Quick Menu</div>
+      <div class="px-2.5 py-1 text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Canvas Quick Menu</div>
       ${hasSelection ? row('commit-sel', 'Commit Selection', 'Enter') : ''}
       ${hasSelection ? row('cancel-sel', 'Cancel & Restore', 'Esc') : ''}
       ${!hasSelection ? row('select-camera', 'Select Capture Area', 'S') : ''}
-      <div class="my-1 h-px bg-zinc-800"></div>
+      <div class="my-1 h-px bg-slate-800"></div>
       ${row('undo', 'Undo Stroke', 'Ctrl+Z')}
       ${row('redo', 'Redo', 'Ctrl+Y')}
-      <div class="my-1 h-px bg-zinc-800"></div>
+      <div class="my-1 h-px bg-slate-800"></div>
       ${row('eyedropper', 'Sample Color Here', 'I')}
       ${row('flip-h', 'Flip Workspace H', 'H')}
       ${row('center-cam', 'Center on Camera', '0')}

@@ -6,6 +6,7 @@ import { requestRender } from '../render/renderEngine.js';
 import { renderTimelineFilmstrip } from '../timeline/filmstrip.js';
 import { saveHistoryState } from '../project/history.js';
 import { showToast } from '../ui/toast.js';
+import { drawStroke, drawShape } from '../canvasUtils.js';
 
 let overlayEl = null;
 
@@ -58,11 +59,46 @@ export async function liftSelectionToFloatingObject(rect) {
   const w = Math.max(1, Math.round(rect.w));
   const h = Math.max(1, Math.round(rect.h));
 
-  // Extract selected pixels from tiles
-  const sourceTiles = frame.layerData[activeLayer.id]?.tiles;
-  const extractedCanvas = await compositeLayerRegion(sourceTiles, rect.x, rect.y, w, h);
+  const lData = frame.layerData[activeLayer.id] || (frame.layerData[activeLayer.id] = { tiles: {}, strokes: [] });
 
-  // Clear lifted pixels from the layer
+  // 1. Composite raster tiles inside selection box
+  const extractedCanvas = await compositeLayerRegion(lData.tiles, rect.x, rect.y, w, h);
+  const eCtx = extractedCanvas.getContext('2d');
+
+  // 2. Extract and draw vector strokes intersecting this selection
+  if (lData.strokes && lData.strokes.length > 0) {
+    eCtx.save();
+    eCtx.translate(-rect.x, -rect.y);
+
+    const remainingStrokes = [];
+    for (const stroke of lData.strokes) {
+      let isInside = false;
+
+      if (stroke.points && stroke.points.length > 0) {
+        // Check if stroke points intersect selection bounding box
+        isInside = stroke.points.some(
+          (p) => p.x >= rect.x && p.x <= rect.x + w && p.y >= rect.y && p.y <= rect.y + h
+        );
+      }
+
+      if (isInside) {
+        // Draw into lifted floating selection
+        if (stroke.isShape && stroke.shapeData) {
+          drawShape(eCtx, stroke.tool, stroke.shapeData.start, stroke.shapeData.end, stroke.settings, stroke.shapeData.shiftKey);
+        } else {
+          drawStroke(eCtx, stroke.points, stroke.tool, stroke.settings);
+        }
+      } else {
+        remainingStrokes.push(stroke);
+      }
+    }
+
+    // Retain only unselected strokes on the active layer
+    lData.strokes = remainingStrokes;
+    eCtx.restore();
+  }
+
+  // 3. Clear lifted raster pixels from tiles
   const eraserCanvas = document.createElement('canvas');
   eraserCanvas.width = w;
   eraserCanvas.height = h;
@@ -70,12 +106,11 @@ export async function liftSelectionToFloatingObject(rect) {
   ectx.fillStyle = '#000000';
   ectx.fillRect(0, 0, w, h);
 
-  const store = frame.layerData[activeLayer.id] || (frame.layerData[activeLayer.id] = { tiles: {} });
-  await blitCanvasIntoTiles(store.tiles, eraserCanvas, rect.x, rect.y, 'destination-out');
+  await blitCanvasIntoTiles(lData.tiles, eraserCanvas, rect.x, rect.y, 'destination-out');
 
   state.floatingSelection = {
     canvas: extractedCanvas,
-    x: rect.x + w / 2, // Center point in world
+    x: rect.x + w / 2,
     y: rect.y + h / 2,
     width: w,
     height: h,

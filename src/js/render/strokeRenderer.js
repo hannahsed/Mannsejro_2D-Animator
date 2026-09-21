@@ -1,14 +1,14 @@
-import { state, currentFrame, SHAPE_TOOLS } from '../state/appState.js';
+// src/js/render/strokeRenderer.js
+import { state, currentFrame } from '../state/appState.js';
 import { elements } from '../state/domElements.js';
-import { drawShape, drawStroke, toolCompositeOp } from '../canvasUtils.js';
-import { hexToRgba } from '../colorUtils.js';
-import { blitCanvasIntoTiles } from '../infiniteCanvas.js';
+import { drawStroke, drawShape } from '../canvasUtils.js';
 import { applyWorldTransform, requestRender } from './renderEngine.js';
 import { renderTimelineFilmstrip } from '../timeline/filmstrip.js';
-import { saveHistoryState } from '../project/history.js';
-import { showToast } from '../ui/toast.js';
 import { scheduleAutosave } from '../project/autosave.js';
-import { dualStabilizer } from '../viewport/dualStabilizer.js';
+import { commandManager, AddStrokeCommand } from '../project/commandManager.js';
+import { simplifyStrokePoints } from '../geometry/strokeSimplifier.js';
+import { commitRasterBlit } from './rasterPaint.js';
+import { paintScatterProp, paintStampProp } from './propsLibrary.js';
 
 export function clearStrokePreview() {
   if (!elements.strokeCanvas || !elements.canvasContainer) return;
@@ -35,168 +35,101 @@ export function renderStrokePreview() {
 
   ctx.save();
   applyWorldTransform(ctx, rect);
-  if (state.currentTool === 'lassofill') {
-    if (state.strokePoints.length >= 2) {
-      const color = state.toolSettings.color || '#3b82f6';
-      const opacity = (state.toolSettings.opacity !== undefined ? state.toolSettings.opacity : 1) * 0.45;
-      ctx.fillStyle = hexToRgba(color, opacity);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.5 / state.zoom;
-      ctx.setLineDash([5 / state.zoom, 4 / state.zoom]);
-      ctx.beginPath();
-      ctx.moveTo(state.strokePoints[0].x, state.strokePoints[0].y);
-      for (let i = 1; i < state.strokePoints.length; i++) {
-        ctx.lineTo(state.strokePoints[i].x, state.strokePoints[i].y);
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
-  } else if (SHAPE_TOOLS.has(state.currentTool)) {
-    drawShape(ctx, state.currentTool, state.dragStartPoint, state.lastPointerWorld, state.toolSettings, Boolean(state.shiftPressed));
-  } else {
-    drawStroke(ctx, state.strokePoints, state.currentTool, state.toolSettings);
 
-    // RENDER VISIBLE LEASH GUIDE IF ENABLED
-    if (state.toolSettings.assistantStabilizer && state.toolSettings.showLeashGuide) {
-      dualStabilizer.renderGuide(ctx);
+  const isEraser = Boolean(state.isEraserActive || state.toolSettings.isEraser);
+  const activeSettings = isEraser ? { ...state.toolSettings, isEraser: true } : state.toolSettings;
+
+  if (state.currentTool === 'props') {
+    const propId = state.toolSettings.propId || 'tree';
+    if (state.strokePoints.length > 2) {
+      paintScatterProp(ctx, propId, state.strokePoints, activeSettings.color, activeSettings.size);
+    } else {
+      paintStampProp(ctx, propId, state.dragStartPoint, activeSettings.color, activeSettings.size);
     }
+  } else if ((state.currentTool === 'shape' || state.currentTool === 'pixel-shape') && state.lastPointerWorld) {
+    drawShape(ctx, 'shape', state.dragStartPoint, state.lastPointerWorld, state.toolSettings, state.shiftPressed);
+  } else if (state.strokePoints.length > 0) {
+    drawStroke(ctx, state.strokePoints, isEraser ? 'eraser' : 'pencil', activeSettings);
   }
+
   ctx.restore();
 }
 
-function strokeBBox(points, pad) {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const p of points) {
-    if (!p) continue;
-    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
-    maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
-  }
-  if (!isFinite(minX)) return null;
-  return { x: minX - pad, y: minY - pad, w: (maxX - minX) + pad * 2, h: (maxY - minY) + pad * 2 };
-}
-
-export async function commitLassoFill() {
-  const points = state.strokePoints;
-  if (!points || points.length < 3) {
-    state.strokePoints = [];
-    state.isDrawing = false;
-    clearStrokePreview();
-    return;
-  }
-
-  const pad = 4;
-  const bbox = strokeBBox(points, pad);
-  if (!bbox) {
-    state.strokePoints = [];
-    state.isDrawing = false;
-    clearStrokePreview();
-    return;
-  }
-
-  const activeLayer = state.project.layers.find((l) => l.id === state.activeLayerId);
-  const op = activeLayer && activeLayer.alphaLocked ? 'source-atop' : 'source-over';
-
-  const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.round(bbox.w));
-  c.height = Math.max(1, Math.round(bbox.h));
-  const cctx = c.getContext('2d');
-  cctx.translate(-bbox.x, -bbox.y);
-
-  const color = state.toolSettings.color || '#3b82f6';
-  const opacity = state.toolSettings.opacity !== undefined ? state.toolSettings.opacity : 1;
-
-  cctx.fillStyle = hexToRgba(color, opacity);
-  cctx.beginPath();
-  cctx.moveTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length; i++) {
-    cctx.lineTo(points[i].x, points[i].y);
-  }
-  cctx.closePath();
-  cctx.fill();
-
-  const frame = currentFrame();
-  if (!frame) return;
-  const store = frame.layerData[state.activeLayerId] || (frame.layerData[state.activeLayerId] = { tiles: {} });
-  await blitCanvasIntoTiles(store.tiles, c, bbox.x, bbox.y, op);
-
-  state.strokePoints = [];
-  state.isDrawing = false;
-  clearStrokePreview();
-  requestRender();
-  renderTimelineFilmstrip();
-  saveHistoryState();
-  scheduleAutosave(true);
-}
-
+/**
+ * Commits stroke to either:
+ * 1. Vector Space (Fine Strokes): stored in store.strokes with zero-degradation mathematical resolution
+ * 2. Pixel Space (Raster Tiles): baked into 512px tile bitmap chunks at 1:1 canvas coordinates
+ */
 export async function commitStrokeToTiles() {
-  const tool = state.currentTool;
-  if (tool === 'lassofill') {
-    return commitLassoFill();
-  }
-  const isShape = SHAPE_TOOLS.has(tool);
-  const pad = Math.max(state.toolSettings.size || 6, state.toolSettings.eraserSize || 24, 8) + 8;
-  let points = state.strokePoints;
-  if (isShape && state.dragStartPoint && state.lastPointerWorld) {
-    let dx = state.lastPointerWorld.x - state.dragStartPoint.x;
-    let dy = state.lastPointerWorld.y - state.dragStartPoint.y;
-    if (state.shiftPressed) {
-      const preset = state.toolSettings.shapePreset || 'rectangle';
-      if (preset === 'line' || preset === 'arrow') {
-        const angle = Math.atan2(dy, dx);
-        const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
-        const dist = Math.hypot(dx, dy);
-        dx = Math.cos(snapped) * dist;
-        dy = Math.sin(snapped) * dist;
-      } else {
-        const maxDim = Math.max(Math.abs(dx), Math.abs(dy));
-        dx = Math.sign(dx || 1) * maxDim;
-        dy = Math.sign(dy || 1) * maxDim;
-      }
-    }
-    const endPt = { x: state.dragStartPoint.x + dx, y: state.dragStartPoint.y + dy };
-    points = [state.dragStartPoint, state.lastPointerWorld, endPt];
-  }
-  const bbox = strokeBBox(points, pad);
-  if (!bbox) return;
-
-  const activeLayer = state.project.layers.find((l) => l.id === state.activeLayerId);
-  const op = activeLayer && activeLayer.alphaLocked ? 'source-atop' : toolCompositeOp(tool, state.toolSettings);
-
-  const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.round(bbox.w));
-  c.height = Math.max(1, Math.round(bbox.h));
-  const cctx = c.getContext('2d');
-  cctx.translate(-bbox.x, -bbox.y);
-
-  if (isShape) {
-    drawShape(cctx, tool, state.dragStartPoint, state.lastPointerWorld, state.toolSettings, Boolean(state.shiftPressed));
-  } else {
-    drawStroke(cctx, state.strokePoints, tool, state.toolSettings);
-  }
+  let points = [...state.strokePoints];
+  if (points.length === 0) return;
 
   const frame = currentFrame();
   if (!frame) return;
-  const store = frame.layerData[state.activeLayerId] || (frame.layerData[state.activeLayerId] = { tiles: {} });
-  await blitCanvasIntoTiles(store.tiles, c, bbox.x, bbox.y, op);
+
+  const isEraser = Boolean(state.isEraserActive || state.toolSettings.isEraser);
+  const activeSettings = isEraser ? { ...state.toolSettings, isEraser: true } : { ...state.toolSettings };
+  const isVectorSpace = !isEraser && activeSettings.strokeSpace === 'vector';
+
+  // 1. VECTOR SPACE: Retain resolution-independent spline path
+  if (isVectorSpace) {
+    if (points.length > 2) {
+      points = simplifyStrokePoints(points, 0.4);
+    }
+
+    const newStroke = {
+      id: `vector_stroke_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      tool: 'pencil',
+      points,
+      settings: activeSettings,
+    };
+
+    await commandManager.execute(
+      new AddStrokeCommand(frame.id, state.activeLayerId, newStroke)
+    );
+  } else {
+    // 2. PIXEL SPACE: Bake onto raster tiles
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of points) {
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+    }
+
+    const pad = Math.max(8, (activeSettings.size || 3) * 2 + 10);
+    const rx = Math.floor(minX - pad);
+    const ry = Math.floor(minY - pad);
+    const rw = Math.max(2, Math.ceil(maxX - minX + pad * 2));
+    const rh = Math.max(2, Math.ceil(maxY - minY + pad * 2));
+
+    const strokeCanvas = document.createElement('canvas');
+    strokeCanvas.width = rw;
+    strokeCanvas.height = rh;
+    const sctx = strokeCanvas.getContext('2d');
+    sctx.translate(-rx, -ry);
+
+    drawStroke(sctx, points, isEraser ? 'eraser' : 'pencil', activeSettings);
+
+    await commitRasterBlit(
+      frame,
+      state.activeLayerId,
+      strokeCanvas,
+      rx,
+      ry,
+      isEraser ? 'destination-out' : 'source-over',
+      1.0
+    );
+  }
 
   state.strokePoints = [];
   state.isDrawing = false;
+  state.isEraserActive = false;
   clearStrokePreview();
   requestRender();
   renderTimelineFilmstrip();
-  saveHistoryState();
-  
-  // Trigger IMMEDIATE Crash-Guard disk sync (no waiting)
+  commandManager.notifyUI();
   scheduleAutosave(true);
 }
 
-export async function clearSelectionPixels() {
-  const sel = state.floatingSelection;
-  if (!sel) return;
-  state.floatingSelection = null;
-  requestRender();
-  renderTimelineFilmstrip();
-  saveHistoryState();
-  showToast('Cleared selection');
+export function clearSelectionPixels() {
+  // Pass-through stub for selection reset
 }

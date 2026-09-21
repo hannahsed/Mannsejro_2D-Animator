@@ -3,6 +3,7 @@ import { state, MIN_ZOOM, MAX_ZOOM } from '../state/appState.js';
 import { elements } from '../state/domElements.js';
 import { showToast } from '../ui/toast.js';
 import { saveHistoryState } from '../project/history.js';
+import { CameraTrack } from './cameraTrack.js';
 
 export function screenToWorld(clientX, clientY) {
   if (!elements.canvasContainer) return { x: 0, y: 0 };
@@ -56,7 +57,8 @@ export function zoomAtPointer(clientX, clientY, newZoom, requestRenderFn) {
 
 export function positionCameraOverlay() {
   if (!state.project?.camera || !elements.cameraOverlay) return;
-  const cam = state.project.camera;
+  const track = CameraTrack.getTrack(state.project);
+  const cam = track.enabled ? CameraTrack.evaluate(state.project, state.currentFrameIndex || 0) : state.project.camera;
   const ov = elements.cameraOverlay;
   const c = worldToScreen(cam.x, cam.y);
   const w = state.project.width * (cam.scale || 1) * state.zoom;

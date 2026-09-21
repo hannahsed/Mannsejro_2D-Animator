@@ -1,6 +1,29 @@
 // src/js/color/maxedFillEngine.js
 import { hexToRgb } from '../colorUtils.js';
 import { blitCanvasIntoTiles, compositeLayerRegion } from '../infiniteCanvas.js';
+import { drawStroke, drawShape, drawPolygonShape } from '../canvasUtils.js';
+import { drawNodeQuad } from '../viewport/nodeDraw.js';
+import { drawPerspectiveShape } from '../viewport/perspectiveRectangleStudio.js';
+
+function drawLayerStrokesToSample(ctx, strokes, winX, winY) {
+  if (!strokes || strokes.length === 0) return;
+  ctx.save();
+  ctx.translate(-winX, -winY);
+  for (const stroke of strokes) {
+    if (stroke.isPerspectiveShape) {
+      drawPerspectiveShape(ctx, stroke);
+    } else if (stroke.isPolygon) {
+      drawPolygonShape(ctx, stroke);
+    } else if (stroke.isNodeQuad) {
+      drawNodeQuad(ctx, stroke);
+    } else if (stroke.isShape && stroke.shapeData) {
+      drawShape(ctx, stroke.tool, stroke.shapeData.start, stroke.shapeData.end, stroke.settings, stroke.shapeData.shiftKey);
+    } else if (stroke.points && stroke.points.length > 0) {
+      drawStroke(ctx, stroke.points, stroke.tool || 'pencil', stroke.settings);
+    }
+  }
+  ctx.restore();
+}
 
 export class MaxedFillEngine {
   /**
@@ -30,23 +53,35 @@ export class MaxedFillEngine {
     sampleCanvas.height = windowSize;
     const sampleCtx = sampleCanvas.getContext('2d');
 
-    // 2. Composite sample source
+    // 2. Composite sample source (Tiles + Vector Strokes)
     if (sampleMode === 'all') {
       for (const layer of project.layers) {
         if (!layer.visible) continue;
         const tiles = frame.layerData[layer.id]?.tiles;
-        if (!tiles) continue;
-        const region = await compositeLayerRegion(tiles, winX, winY, windowSize, windowSize);
-        sampleCtx.save();
-        sampleCtx.globalAlpha = layer.opacity ?? 1;
-        sampleCtx.drawImage(region, 0, 0);
-        sampleCtx.restore();
+        if (tiles && Object.keys(tiles).length > 0) {
+          const region = await compositeLayerRegion(tiles, winX, winY, windowSize, windowSize);
+          sampleCtx.save();
+          sampleCtx.globalAlpha = layer.opacity ?? 1;
+          sampleCtx.drawImage(region, 0, 0);
+          sampleCtx.restore();
+        }
+        const strokes = frame.layerData[layer.id]?.strokes;
+        if (strokes && strokes.length > 0) {
+          sampleCtx.save();
+          sampleCtx.globalAlpha = layer.opacity ?? 1;
+          drawLayerStrokesToSample(sampleCtx, strokes, winX, winY);
+          sampleCtx.restore();
+        }
       }
     } else {
       const tiles = frame.layerData[activeLayer.id]?.tiles;
-      if (tiles) {
+      if (tiles && Object.keys(tiles).length > 0) {
         const region = await compositeLayerRegion(tiles, winX, winY, windowSize, windowSize);
         sampleCtx.drawImage(region, 0, 0);
+      }
+      const strokes = frame.layerData[activeLayer.id]?.strokes;
+      if (strokes && strokes.length > 0) {
+        drawLayerStrokesToSample(sampleCtx, strokes, winX, winY);
       }
     }
 

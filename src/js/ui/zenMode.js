@@ -53,13 +53,13 @@ function showZenFloatingPill() {
   if (!zenPillEl) {
     zenPillEl = document.createElement('div');
     zenPillEl.className =
-      'fixed top-3 left-1/2 -translate-x-1/2 z-[100] px-3 py-1 bg-zinc-900/80 backdrop-blur-md border border-zinc-700/80 rounded-full text-[11px] font-mono text-zinc-300 shadow-2xl flex items-center gap-3 select-none pointer-events-auto';
+      'fixed top-3 left-1/2 -translate-x-1/2 z-[100] px-3 py-1 bg-slate-900/80 backdrop-blur-md border border-slate-700/80 rounded-full text-[11px] font-mono text-slate-300 shadow-2xl flex items-center gap-3 select-none pointer-events-auto';
     zenPillEl.innerHTML = `
-      <span class="flex items-center gap-1.5 text-indigo-400 font-bold">
-        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]"></span> ZEN
+      <span class="flex items-center gap-1.5 text-blue-400 font-bold">
+        <span class="w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_6px_#38bdf8]"></span> ZEN
       </span>
-      <span class="text-zinc-500">|</span>
-      <span>Press <kbd class="px-1 py-0.5 bg-zinc-800 rounded font-bold text-white">Tab</kbd> to exit</span>
+      <span class="text-slate-500">|</span>
+      <span>Press <kbd class="px-1 py-0.5 bg-slate-800 rounded font-bold text-white">Tab</kbd> to exit</span>
     `;
     document.body.appendChild(zenPillEl);
   }

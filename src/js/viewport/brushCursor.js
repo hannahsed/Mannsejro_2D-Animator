@@ -1,68 +1,49 @@
-import { state, SHAPE_TOOLS } from '../state/appState.js';
+// src/js/viewport/brushCursor.js
+import { state } from '../state/appState.js';
 import { elements } from '../state/domElements.js';
+import { hexToRgba } from '../colorUtils.js';
 
 export function updateBrushCursorPosition(clientX, clientY) {
   if (!elements.brushCursor || !elements.canvasContainer) return;
   const rect = elements.canvasContainer.getBoundingClientRect();
-  if (
+  const outOfBounds =
     clientX < rect.left ||
     clientX > rect.right ||
     clientY < rect.top ||
-    clientY > rect.bottom ||
-    state.isPanning ||
-    state.isSpacePressed ||
-    state.currentTool === 'eyedropper' ||
-    state.currentTool === 'bucket' ||
-    state.currentTool === 'hand' ||
-    SHAPE_TOOLS.has(state.currentTool)
-  ) {
+    clientY > rect.bottom;
+
+  if (outOfBounds || state.isPanning || state.isSpacePressed) {
     elements.brushCursor.classList.add('hidden');
     return;
   }
 
-  const isEraser = state.currentTool === 'eraser';
-  const baseSize = isEraser
-    ? state.toolSettings.eraserSize || 24
-    : state.toolSettings.size || 5;
-
-  const visualDiameter = Math.max(4, Math.round(baseSize * state.zoom));
   const relX = clientX - rect.left;
   const relY = clientY - rect.top;
+  const baseSize = state.toolSettings.size || 3;
+  // Stroke diameter = baseSize * zoom (matches rendered stroke width at 100% pressure)
+  const visualDiameter = Math.max(3, Math.round(baseSize * state.zoom));
 
   elements.brushCursor.style.width = `${visualDiameter}px`;
   elements.brushCursor.style.height = `${visualDiameter}px`;
   elements.brushCursor.style.left = `${relX - visualDiameter / 2}px`;
   elements.brushCursor.style.top = `${relY - visualDiameter / 2}px`;
 
-  if (isEraser) {
-    elements.brushCursor.className =
-      'rounded-full border border-rose-400/90 bg-rose-500/20 pointer-events-none shadow-sm z-90 ring-1 ring-white/50 absolute transition-none';
-  } else {
-    elements.brushCursor.className =
-      'rounded-full border border-white/90 bg-indigo-500/20 pointer-events-none shadow-sm z-90 ring-1 ring-black/40 absolute transition-none';
-  }
+  const curColor = state.toolSettings.color || '#1e293b';
+  elements.brushCursor.className =
+    'rounded-full border pointer-events-none shadow-sm z-90 ring-1 ring-black/40 absolute transition-none';
+  elements.brushCursor.style.borderColor = 'rgba(255, 255, 255, 0.9)';
+  elements.brushCursor.style.backgroundColor = hexToRgba(curColor, 0.25);
   elements.brushCursor.classList.remove('hidden');
 }
 
 export function adjustBrushSize(delta) {
-  const isEraser = state.currentTool === 'eraser';
-  if (isEraser) {
-    state.toolSettings.eraserSize = Math.max(1, Math.min(200, (state.toolSettings.eraserSize || 24) + delta));
-    const s = document.getElementById('slider-eraser-size');
-    if (s) s.value = state.toolSettings.eraserSize;
-  } else {
-    state.toolSettings.size = Math.max(1, Math.min(200, (state.toolSettings.size || 5) + delta));
-    const s = document.getElementById('slider-draw-size') || elements.sliderBrushSize;
-    if (s) s.value = state.toolSettings.size;
-    const lbl = document.getElementById('label-draw-size') || elements.brushSizeVal;
-    if (lbl) lbl.textContent = `${state.toolSettings.size} px`;
-  }
+  state.toolSettings.size = Math.max(1, Math.min(60, (state.toolSettings.size || 3) + delta));
+  const s = document.getElementById('slider-pencil-size');
+  if (s) s.value = state.toolSettings.size;
+  const lbl = document.getElementById('label-pencil-size');
+  if (lbl) lbl.textContent = `${state.toolSettings.size} px`;
 }
 
-export function adjustOpacity(delta) {
-  state.toolSettings.opacity = +(Math.max(0.05, Math.min(1.0, (state.toolSettings.opacity || 1) + delta)).toFixed(2));
-  const s = document.getElementById('slider-draw-opacity') || elements.sliderBrushOpacity;
-  if (s) s.value = Math.round(state.toolSettings.opacity * 100);
-  const lbl = document.getElementById('label-draw-opacity') || elements.brushOpacityVal;
-  if (lbl) lbl.textContent = `${Math.round(state.toolSettings.opacity * 100)}%`;
+export function getCursorSvg() {
+  return null;
 }

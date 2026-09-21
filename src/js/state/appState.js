@@ -3,159 +3,131 @@ export const MIN_ZOOM = 0.05;
 export const MAX_ZOOM = 32;
 
 export const SHAPE_TOOLS = new Set(['shape']);
-export const INK_TOOLS = new Set(['draw', 'pencil', 'brush', 'pen', 'marker', 'eraser', 'lassofill']);
+export const INK_TOOLS = new Set(['pencil', 'vector-pen', 'graphite', 'soft-brush', 'smear', 'blur']);
 
-export const SHAPE_PRESETS = [
+// -------------------------------------------------------------
+// 1. VECTOR SPACE TOOLS & PRESETS
+// -------------------------------------------------------------
+export const VECTOR_TOOLS = [
+  { id: 'vector-pen', name: 'Vector Pen', icon: 'pen', hotkey: 'P', desc: 'Resolution-independent spline inking' },
+  { id: 'shape', name: 'Perspective & Shapes', icon: 'shape', hotkey: 'U', desc: '2D Rect, Perspective Quad & 3D Box' },
+  { id: 'vector-edit', name: 'Node Selector', icon: 'select', hotkey: 'A', desc: 'Select and manipulate vector curves' },
+  { id: 'vector-fill', name: 'Vector Fill', icon: 'fill', hotkey: 'G', desc: 'Fill enclosed vector boundary' },
+];
+
+export const VECTOR_PRESETS = [
   {
-    id: 'rectangle',
-    name: 'Rectangle',
-    badge: 'Box',
-    desc: 'Sharp architectural bounding box & framing.',
-    icon: '<rect x="3" y="3" width="18" height="18" rx="1" stroke-width="2" />',
+    id: 'fine-strokes',
+    name: 'Fine Strokes (Vector)',
+    badge: 'Vector',
+    desc: 'Resolution-independent spline strokes that never pixelate at any zoom level',
+    defaultSpace: 'vector',
+    size: 4,
+    opacity: 1.0,
+    taperStart: true,
+    taperEnd: true,
+    taperLength: 0.22,
+    interpolationMode: 'both',
+    smoothing: 0.60,
   },
   {
-    id: 'rounded-rect',
-    name: 'Rounded Card',
-    badge: 'UI',
-    desc: 'Smooth corner rectangle for panels and buttons.',
-    icon: '<rect x="3" y="3" width="18" height="18" rx="5" stroke-width="2" />',
+    id: 'precision-ink',
+    name: 'Precision Inking',
+    badge: 'Contour',
+    desc: 'Watertight Bézier outline contours with graceful end flick',
+    defaultSpace: 'vector',
+    size: 3,
+    opacity: 1.0,
+    taperStart: false,
+    taperEnd: true,
+    taperLength: 0.18,
+    interpolationMode: 'end',
+    smoothing: 0.70,
   },
   {
-    id: 'ellipse',
-    name: 'Circle / Ellipse',
-    badge: 'Round',
-    desc: 'Smooth circular forms and animation squash balls.',
-    icon: '<circle cx="12" cy="12" r="9" stroke-width="2" />',
-  },
-  {
-    id: 'line',
-    name: 'Straight Ruler',
-    badge: 'Line',
-    desc: 'Crisp line with angle snapping (Hold Shift for 45°).',
-    icon: '<line x1="4" y1="20" x2="20" y2="4" stroke-width="2" stroke-linecap="round" />',
-  },
-  {
-    id: 'arrow',
-    name: 'Motion Arrow',
-    badge: 'Arc',
-    desc: 'Animation anticipation vector & motion path guide.',
-    icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />',
-  },
-  {
-    id: 'polygon',
-    name: 'Triangle / Polygon',
-    badge: 'Poly',
-    desc: 'Regular polygon with customizable side counts.',
-    icon: '<polygon points="12 3 21 19 3 19" stroke-width="2" stroke-linejoin="round" />',
-  },
-  {
-    id: 'star',
-    name: 'Impact Burst / Star',
-    badge: 'FX',
-    desc: 'Action impact spark and anime explosion flare.',
-    icon: '<polygon points="12 2 15 8.5 22 9.3 17 14 18.5 21 12 17.5 5.5 21 7 14 2 9.3 9 8.5 12 2" stroke-width="2" stroke-linejoin="round" />',
+    id: 'clean-lineart',
+    name: 'Clean Lineart',
+    badge: 'Dynamic',
+    desc: 'Uniform line weight with responsive pressure curve',
+    defaultSpace: 'vector',
+    size: 2.5,
+    opacity: 1.0,
+    taperStart: false,
+    taperEnd: false,
+    taperLength: 0.15,
+    interpolationMode: 'none',
+    smoothing: 0.50,
   },
 ];
 
-export const DRAW_PRESETS = [
+// Backwards compatibility aliases
+export const DRAW_TOOL_PRESETS = VECTOR_PRESETS;
+
+// -------------------------------------------------------------
+// 2. PIXEL SPACE TOOLS & PRESETS
+// -------------------------------------------------------------
+export const PIXEL_TOOLS = [
+  { id: 'graphite', name: 'Graphite Pencil', icon: 'pencil', hotkey: 'B', desc: 'Multi-grade lead with paper grain catch' },
+  { id: 'pixel-shape', name: 'Raster Shapes & Lines', icon: 'shape', hotkey: 'U', desc: 'Bakes lines, rects & perspective directly to canvas tiles' },
+  { id: 'soft-brush', name: 'Soft Airbrush', icon: 'brush', hotkey: 'S', desc: 'Velvety Gaussian diffusion shading' },
+  { id: 'smear', name: 'Smudge / Smear', icon: 'smear', hotkey: 'R', desc: 'Finger-paint blend & wet pigment smudge' },
+  { id: 'blur', name: 'Soften / Blur', icon: 'blur', hotkey: 'O', desc: 'Local box blur for soft transitions' },
+  { id: 'pixel-fill', name: 'Smart Flood Fill', icon: 'bucket', hotkey: 'G', desc: 'Tile fill with morphological gap close' },
+  { id: 'eraser', name: 'Raster Eraser', icon: 'eraser', hotkey: 'E', desc: 'Direct destination-out pixel removal' },
+];
+
+export const PIXEL_PRESETS = [
   {
-    id: 'studio-ink',
-    name: 'Studio Inker',
-    badge: 'Pro',
-    desc: 'Clean, balanced inking with natural taper and silky stabilization.',
-    size: 5,
-    opacity: 1,
-    smoothing: 0.65,
-    taperStart: true,
-    taperEnd: true,
-    taperLength: 0.25,
-    pressure: true,
-    composite: 'source-over',
-  },
-  {
-    id: 'tapered-fineliner',
-    name: 'Tapered Fineliner',
-    badge: 'Anime',
-    desc: 'Sharp needle-point ends for fast manga lineart and clean contour inbetweens.',
+    id: 'graphite',
+    name: 'Graphite Lead',
+    badge: '2B Lead',
+    desc: 'Multi-grade authentic graphite lead with organic paper tooth catch',
+    defaultSpace: 'pixel',
     size: 3,
-    opacity: 1,
-    smoothing: 0.5,
-    taperStart: true,
-    taperEnd: true,
-    taperLength: 0.4,
-    pressure: true,
-    composite: 'source-over',
+    opacity: 0.85,
+    pencilGrade: '2B',
+    pencilTooth: 0.85,
+    pencilTip: 'point',
+    smoothing: 0.35,
   },
   {
-    id: 'rough-pencil',
-    name: 'Rough Pencil',
-    badge: 'Sketch',
-    desc: 'Light, responsive rough layout pencil with subtle softness and quick response.',
-    size: 4,
-    opacity: 0.75,
-    smoothing: 0.2,
-    taperStart: true,
-    taperEnd: false,
-    taperLength: 0.15,
-    pressure: true,
-    composite: 'source-over',
-  },
-  {
-    id: 'dynamic-calligraphy',
-    name: 'Dynamic Brush Pen',
-    badge: 'Thick/Thin',
-    desc: 'Dramatic weight variation driven by stroke speed and tablet pressure.',
-    size: 10,
-    opacity: 1,
-    smoothing: 0.6,
-    taperStart: true,
-    taperEnd: true,
-    taperLength: 0.35,
-    pressure: true,
-    composite: 'source-over',
-  },
-  {
-    id: 'cel-marker',
-    name: 'Cel Shading Marker',
-    badge: 'Cel',
-    desc: 'Semi-transparent multiply wash for cel shadows, highlights, and blocking.',
-    size: 14,
+    id: 'chisel-shading',
+    name: 'Chisel Shading',
+    badge: 'Broad Chisel',
+    desc: 'Wide angled graphite lead for rapid planar shading and value blocking',
+    defaultSpace: 'pixel',
+    size: 8,
     opacity: 0.65,
-    smoothing: 0.3,
-    taperStart: false,
-    taperEnd: false,
-    taperLength: 0,
-    pressure: false,
-    composite: 'multiply',
+    pencilGrade: '4B',
+    pencilTooth: 0.75,
+    pencilTip: 'broad',
+    smoothing: 0.40,
   },
   {
-    id: 'lazy-streamline',
-    name: 'Lazy Rope Streamline',
-    badge: 'Steady',
-    desc: 'Maximum curve stabilization for drawing perfect arcs and circles with zero jitter.',
-    size: 6,
-    opacity: 1,
-    smoothing: 0.9,
-    taperStart: true,
-    taperEnd: true,
-    taperLength: 0.3,
-    pressure: true,
-    composite: 'source-over',
-  },
-  {
-    id: 'freehand-sketch',
-    name: 'Raw Freehand',
-    badge: 'Raw',
-    desc: 'Zero artificial smoothing. 1:1 instantaneous response for gestural posing.',
+    id: 'rough-grain',
+    name: 'Rough Tooth Grain',
+    badge: 'Heavy Grain',
+    desc: 'Intensified paper tooth catch for organic sketches and charcoal texture',
+    defaultSpace: 'pixel',
     size: 4,
-    opacity: 1,
-    smoothing: 0,
-    taperStart: false,
-    taperEnd: false,
-    taperLength: 0,
-    pressure: false,
-    composite: 'source-over',
+    opacity: 0.90,
+    pencilGrade: '6B',
+    pencilTooth: 1.0,
+    pencilTip: 'point',
+    smoothing: 0.20,
   },
+];
+
+// Backwards compatibility aliases
+export const TEXTURE_TOOL_PRESETS = PIXEL_PRESETS;
+export const PENCIL_PRESETS = [...VECTOR_PRESETS, ...PIXEL_PRESETS];
+
+export const PENCIL_GRADES = [
+  { id: '2H', name: '2H Hard', desc: 'Light, crisp silvery tone' },
+  { id: 'HB', name: 'HB Drafting', desc: 'Balanced sketching graphite' },
+  { id: '2B', name: '2B Medium Soft', desc: 'Rich lead with natural tooth catch' },
+  { id: '4B', name: '4B Soft Carbon', desc: 'Dark velvety graphite' },
+  { id: '6B', name: '6B Matte Carbon', desc: 'Deep black carbon deposit' },
 ];
 
 export const BLEND_MODES = [
@@ -165,24 +137,16 @@ export const BLEND_MODES = [
   { value: 'overlay', label: 'Overlay' },
   { value: 'darken', label: 'Darken' },
   { value: 'lighten', label: 'Lighten' },
-  { value: 'color-dodge', label: 'Color Dodge' },
-  { value: 'color-burn', label: 'Color Burn' },
-  { value: 'hard-light', label: 'Hard Light' },
-  { value: 'soft-light', label: 'Soft Light' },
-  { value: 'difference', label: 'Difference' },
-  { value: 'exclusion', label: 'Exclusion' },
 ];
 
 export const COLOR_TAGS = [
   { id: null, label: 'None', hex: 'transparent' },
-  { id: 'red', label: 'Red', hex: '#ef4444' },
-  { id: 'orange', label: 'Orange', hex: '#f97316' },
-  { id: 'amber', label: 'Amber', hex: '#f59e0b' },
-  { id: 'green', label: 'Green', hex: '#10b981' },
-  { id: 'cyan', label: 'Cyan', hex: '#06b6d4' },
+  { id: 'white', label: 'White', hex: '#ffffff' },
+  { id: 'gray', label: 'Gray', hex: '#64748b' },
   { id: 'blue', label: 'Blue', hex: '#3b82f6' },
-  { id: 'purple', label: 'Purple', hex: '#a855f7' },
-  { id: 'pink', label: 'Pink', hex: '#ec4899' },
+  { id: 'sky', label: 'Sky', hex: '#0ea5e9' },
+  { id: 'orange', label: 'Orange', hex: '#f97316' },
+  { id: 'deep-orange', label: 'Rust', hex: '#ea580c' },
 ];
 
 export const state = {
@@ -191,78 +155,89 @@ export const state = {
   activeLayerId: null,
   isPlaying: false,
   loop: true,
-  currentTool: 'draw',
 
-  // Layer Solo visibility memory { [layerId]: previousVisibleState }
+  // PRIMARY ARCHITECTURAL SPLIT:
+  engineMode: 'vector',         // 'vector' | 'pixel'
+  currentTool: 'vector-pen',    // In Vector: 'vector-pen', 'shape', 'vector-fill'
+                                // In Pixel:  'graphite', 'soft-brush', 'smear', 'blur', 'pixel-fill', 'eraser'
+
   soloMemory: null,
 
   toolSettings: {
-    // Shape presets
-    shapePreset: 'rectangle',
-    shapeMode: 'stroke', // 'stroke' | 'fill' | 'both'
-    cornerRadius: 12,
-    polygonSides: 3,
-    strokeDash: 'solid', // 'solid' | 'dashed' | 'dotted'
-    // Draw / General
-    preset: 'studio-ink',
-    size: 5,
-    opacity: 1,
-    smoothing: 0.5,
-    assistantStabilizer: true,
-    assistantWeight: 0.65,
-    leashRadius: 18,
-    showLeashGuide: true,
+    // Engine Alignment
+    strokeSpace: 'vector',      // 'vector' (Splines) | 'pixel' (512px Tiles)
+    
+    // Vector Space Settings
+    vectorPreset: 'fine-strokes',
+    pencilPreset: 'fine-strokes',
+    drawPreset: 'fine-strokes',
+    interpolationMode: 'both',  // 'both' | 'start' | 'end' | 'none'
     taperStart: true,
     taperEnd: true,
-    taperLength: 0.25,
-    pressure: true,
-    composite: 'source-over',
-    fillStyleMode: 'precision',
-    fillMoatWidth: 4,
-    fillTolerance: 32,
-    fillCloseGap: 3,
-    fillBleed: 2,
-    fillSampleMode: 'all',
-    shapeFilled: false,
-    color: '#3b82f6',
-    secondaryColor: '#000000',
+    taperLength: 0.22,
+    smoothing: 0.60,            // Streamline Tremor Filter (Default: 60%)
+    stabilizerRope: 0.0,        // Inertial Rope Damper (0% - 100%)
+
+    // Pixel Space Settings
+    pixelPreset: 'graphite',
+    texturePreset: 'graphite',
+    pencilGrade: '2B',
+    pencilTooth: 0.85,
+    pencilTip: 'point',         // 'point' | 'broad'
+    paperPreset: 'sketchbook',
+    paperTexture: true,
+    blurStrength: 0.50,
+    smearStrength: 0.65,
     eraserSize: 24,
-    fontSize: 32,
+    fillTolerance: 32,
+    fillCloseGap: 2,
+    fillBleed: 2,
+
+    // Shared Parameters
+    size: 4,
+    opacity: 1.0,
+    pressure: true,
+    pressureCurve: 0.8,
+    color: '#1e293b',
+    secondaryColor: '#ffffff',
+
+    // Shape & Line Geometry Workflow
+    shapeType: 'rectangle',    // 'line' | 'rectangle' | 'ellipse' | 'perspective'
+    activeShapeType: 'rectangle',
+    rectSubMode: 'perspective',
+    rectMode: 'standard',      // 'standard' | 'perspective' | 'cube'
+    shapeMode: 'both',         // 'stroke' | 'fill' | 'both'
+    cornerRadius: 0,
+    strokeDash: 'solid',       // 'solid' | 'dashed' | 'dotted'
+    lineCap: 'round',          // 'round' | 'butt'
+    cubeVisibility: 'shaded3',
+    cubeExtrusion: 80,
+    rectSubdivisions: 1,
+    rectDiagonals: false,
+    perspectiveImage: null,
+    perspectiveImageName: null,
   },
 
   onionSkin: {
     enabled: true,
     prevFrames: 2,
     nextFrames: 1,
-    prevColor: '#ef4444',
-    nextColor: '#10b981',
+    prevColor: '#f97316',
+    nextColor: '#3b82f6',
     opacity: 0.45,
     mode: 'tint',
   },
-
   loopIn: 0,
   loopOut: -1,
-
-  // Viewport
   zoom: 1,
   pan: { x: 0, y: 0 },
-
-  // Selection
   isDrawing: false,
-  isSelecting: false,
-  selectStart: null,
-  selectionMarquee: null,
-  floatingSelection: null,
-
   isPanning: false,
   isSpacePressed: false,
   spacePanUsed: false,
-  tempEyedropper: false,
-
   dragStartPoint: null,
   lastPointerWorld: null,
   strokePoints: [],
-
   historyStack: [],
   historyIndex: -1,
   showGrid: false,
@@ -273,16 +248,15 @@ export const state = {
 export const playbackTimer = { id: null };
 export const renderTokenState = { token: 0 };
 export const renderScheduledState = { scheduled: false };
-
 export const shiftTraceState = {
   active: false,
-  frameIndex: null, // target frame to shift & trace (defaults to previous frame if null)
+  frameIndex: null,
   offsetX: 0,
   offsetY: 0,
   rotation: 0,
   scale: 1,
   opacity: 0.4,
-  color: '#3b82f6', // 40% blue tint
+  color: '#3b82f6',
 };
 
 export function currentFrame() {
@@ -291,9 +265,9 @@ export function currentFrame() {
 }
 
 export function hasFloatingSelection() {
-  return Boolean(state.floatingSelection && state.floatingSelection.canvas);
+  return false;
 }
 
 export function hasSelection() {
-  return hasFloatingSelection() || Boolean(state.selectionMarquee && state.selectionMarquee.w >= 1 && state.selectionMarquee.h >= 1);
+  return false;
 }

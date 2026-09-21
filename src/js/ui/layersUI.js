@@ -5,6 +5,8 @@ import { requestRender } from '../render/renderEngine.js';
 import { renderTimelineFilmstrip } from '../timeline/filmstrip.js';
 import { saveHistoryState } from '../project/history.js';
 import { copyTiles, blitCanvasIntoTiles, compositeLayerRegion } from '../infiniteCanvas.js';
+import { drawStroke } from '../canvasUtils.js';
+import { scheduleAutosave } from '../project/autosave.js';
 import { showToast, escapeHtml } from './toast.js';
 
 let layerDragState = null;
@@ -27,7 +29,7 @@ function getLayerContextMenu() {
   layerContextMenuEl = document.createElement('div');
   layerContextMenuEl.id = 'layer-context-menu';
   layerContextMenuEl.className =
-    'fixed z-[120] min-w-[210px] bg-zinc-900/95 backdrop-blur-md border border-zinc-700/80 rounded-2xl shadow-2xl p-1.5 hidden select-none text-xs text-zinc-200';
+    'fixed z-[120] min-w-[210px] bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 hidden select-none text-xs text-slate-200';
   document.body.appendChild(layerContextMenuEl);
 
   window.addEventListener(
@@ -60,11 +62,11 @@ export function showLayerContextMenu(layerId, clientX, clientY) {
       disabled
         ? 'opacity-35 cursor-not-allowed'
         : danger
-          ? 'text-rose-400 hover:bg-rose-950/50 hover:text-rose-200'
-          : 'hover:bg-zinc-800 text-zinc-200'
+          ? 'text-orange-400 hover:bg-orange-950/50 hover:text-orange-200'
+          : 'hover:bg-slate-800 text-slate-200'
     }">
       <span>${label}</span>
-      ${shortcut ? `<span class="text-[10px] font-mono text-zinc-500">${shortcut}</span>` : ''}
+      ${shortcut ? `<span class="text-[10px] font-mono text-slate-500">${shortcut}</span>` : ''}
     </button>
   `;
 
@@ -74,12 +76,14 @@ export function showLayerContextMenu(layerId, clientX, clientY) {
     )}</div>
     ${row('rename', 'Rename Layer', 'Dbl-Click')}
     ${row('duplicate', 'Duplicate Layer')}
+    ${row('toggle-persist', layer.persistent ? 'Convert to Animation Layer' : 'Make Persistent (Pinned Background)')}
+    ${row('propagate-all', 'Propagate to All Frames in Timeline')}
     ${row('toggle-clip', layer.clippingMask ? 'Unclip Mask' : 'Create Clipping Mask')}
     ${row('toggle-alpha', layer.alphaLocked ? 'Unlock Alpha' : 'Lock Alpha')}
     ${row('toggle-lock', layer.locked ? 'Unlock Layer' : 'Lock Layer')}
     ${row('solo', state.soloMemory ? 'Exit Solo Mode' : 'Solo Layer', 'Alt+Click')}
-    <div class="my-1 h-px bg-zinc-800"></div>
-    <div class="px-2.5 py-1 text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">Color Tag</div>
+    <div class="my-1 h-px bg-slate-800"></div>
+    <div class="px-2.5 py-1 text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Color Tag</div>
     <div class="flex items-center gap-1.5 px-2 py-1">
       ${COLOR_TAGS.map(
         (ct) => `
@@ -89,12 +93,13 @@ export function showLayerContextMenu(layerId, clientX, clientY) {
       `
       ).join('')}
     </div>
-    <div class="my-1 h-px bg-zinc-800"></div>
+    <div class="my-1 h-px bg-slate-800"></div>
+    ${row('bake-layer', 'Bake Layer to Pixels')}
     ${row('clear', 'Clear Layer')}
     ${row('merge-down', 'Merge Down', '', !canMergeDown)}
     ${row('merge-visible', 'Merge Visible')}
     ${row('flatten', 'Flatten All Layers')}
-    <div class="my-1 h-px bg-zinc-800"></div>
+    <div class="my-1 h-px bg-slate-800"></div>
     ${row('delete', 'Delete Layer', 'Del', !canDelete, true)}
   `;
 
@@ -126,7 +131,11 @@ function handleLayerAction(action, layerId) {
   const layer = state.project.layers.find((l) => l.id === layerId);
   if (!layer) return;
 
-  if (action === 'rename') {
+  if (action === 'toggle-persist') {
+    toggleLayerPersistence(layerId);
+  } else if (action === 'propagate-all') {
+    propagateLayerAcrossTimeline(layerId);
+  } else if (action === 'rename') {
     startRenamingLayer(layerId);
   } else if (action === 'duplicate') {
     duplicateLayer(layerId);
@@ -147,6 +156,8 @@ function handleLayerAction(action, layerId) {
     saveHistoryState();
   } else if (action === 'solo') {
     toggleSoloLayer(layerId);
+  } else if (action === 'bake-layer') {
+    bakeLayerToPixels(layerId);
   } else if (action === 'clear') {
     clearLayerPixels(layerId);
   } else if (action === 'merge-down') {
@@ -163,6 +174,44 @@ function handleLayerAction(action, layerId) {
 /* ---------------------------------------------------------
    Core Layer Modifications
 --------------------------------------------------------- */
+/**
+ * Copies the current frame's artwork on this layer to every frame across the entire timeline.
+ */
+export function propagateLayerAcrossTimeline(layerId) {
+  const currentF = state.project.frames[state.currentFrameIndex];
+  if (!currentF) return;
+
+  const sourceData = currentF.layerData[layerId];
+  if (!sourceData) return;
+
+  const layer = state.project.layers.find((l) => l.id === layerId);
+  if (!layer) return;
+  layer.persistent = true; // Auto-mark as persistent
+
+  state.project.frames.forEach((frame) => {
+    frame.layerData[layerId] = {
+      tiles: copyTiles(sourceData.tiles),
+      strokes: sourceData.strokes ? JSON.parse(JSON.stringify(sourceData.strokes)) : []
+    };
+  });
+
+  renderLayersList();
+  renderTimelineFilmstrip();
+  requestRender();
+  saveHistoryState();
+  showToast(`Propagated "${layer.name}" across all ${state.project.frames.length} frames!`);
+}
+
+export function toggleLayerPersistence(layerId) {
+  const layer = state.project.layers.find((l) => l.id === layerId);
+  if (!layer) return;
+
+  layer.persistent = !layer.persistent;
+  renderLayersList();
+  saveHistoryState();
+  showToast(layer.persistent ? `"${layer.name}" is now Persistent (Pinned across new frames)` : `"${layer.name}" is now an Animation Layer (Blanks on new frames)`);
+}
+
 export function toggleSoloLayer(targetId) {
   if (state.soloMemory) {
     // Restore previous visibilities
@@ -182,6 +231,7 @@ export function toggleSoloLayer(targetId) {
   }
   renderLayersList();
   requestRender();
+  saveHistoryState();
 }
 
 export function duplicateLayer(layerId) {
@@ -222,6 +272,39 @@ export function deleteLayer(layerId) {
   requestRender();
   renderTimelineFilmstrip();
   saveHistoryState();
+}
+
+export async function bakeLayerToPixels(layerId) {
+  const layer = state.project.layers.find((l) => l.id === layerId);
+  if (!layer) return;
+
+  const w = state.project.width;
+  const h = state.project.height;
+
+  for (const frame of state.project.frames) {
+    const layerEntry = frame.layerData[layerId];
+    if (!layerEntry) continue;
+    const tiles = layerEntry.tiles || {};
+    const strokes = layerEntry.strokes || [];
+    if (Object.keys(tiles).length === 0 && strokes.length === 0) continue;
+
+    const c = await compositeLayerRegion(tiles, 0, 0, w, h);
+    if (strokes.length > 0) {
+      const ctx = c.getContext('2d');
+      for (const s of strokes) {
+        drawStroke(ctx, s.points, s.tool, s.settings);
+      }
+      layerEntry.strokes = [];
+    }
+    layerEntry.tiles = {};
+    await blitCanvasIntoTiles(layerEntry.tiles, c, 0, 0, 'source-over');
+  }
+
+  requestRender();
+  renderTimelineFilmstrip();
+  saveHistoryState();
+  scheduleAutosave(true);
+  showToast(`Baked "${layer.name}" into pure pixel tiles`);
 }
 
 export async function clearLayerPixels(layerId) {
@@ -396,6 +479,7 @@ export function renderLayersList() {
   reversedLayers.forEach((layer) => {
     const isCurrentActive = layer.id === state.activeLayerId;
     const tagInfo = COLOR_TAGS.find((c) => c.id === layer.colorTag);
+    const isPersistent = Boolean(layer.persistent);
     const row = document.createElement('div');
     row.dataset.layerId = layer.id;
     row.title = 'Click to select · Right-click for options · Drag to reorder · Dbl-click to rename';
@@ -405,7 +489,7 @@ export function renderLayersList() {
     } ${
       isCurrentActive
         ? 'bg-orange-500/15 border-orange-500/80 text-white shadow-md shadow-orange-500/20'
-        : 'bg-zinc-850/50 border-zinc-800 hover:border-zinc-700 text-zinc-300'
+        : 'bg-slate-900/50 border-slate-800 hover:border-slate-700 text-slate-300'
     }`;
 
     const colorIndicator = tagInfo && tagInfo.id ? `<span class="w-1.5 h-6 rounded-full shrink-0" style="background-color: ${tagInfo.hex}"></span>` : '';
@@ -414,7 +498,7 @@ export function renderLayersList() {
       <div class="flex items-center gap-2 min-w-0 flex-1">
         ${colorIndicator}
         ${layer.clippingMask ? '<span class="text-[10px] text-orange-400 font-bold">↳</span>' : ''}
-        <button class="btn-toggle-vis p-1 text-zinc-400 hover:text-white shrink-0" title="Toggle visibility (Alt+Click to solo)">
+        <button class="btn-toggle-vis p-1 text-slate-400 hover:text-white shrink-0" title="Toggle visibility (Alt+Click to solo)">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             ${
               layer.visible
@@ -424,8 +508,11 @@ export function renderLayersList() {
           </svg>
         </button>
         <div class="flex flex-col min-w-0">
-          <span class="layer-name-text text-xs font-semibold truncate">${escapeHtml(layer.name)}</span>
-          <span class="text-[9px] text-zinc-500 font-mono truncate">${Math.round((layer.opacity || 1) * 100)}% · ${
+          <div class="flex items-center gap-1.5">
+            <span class="layer-name-text text-xs font-semibold truncate">${escapeHtml(layer.name)}</span>
+            ${isPersistent ? '<span class="inline-flex items-center gap-1 text-[9px] px-1 py-0.5 rounded bg-orange-500/20 text-orange-300 font-mono font-bold shrink-0" title="Persistent: fixed background across frames"><svg class="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>BG</span>' : ''}
+          </div>
+          <span class="text-[9px] text-slate-500 font-mono truncate">${Math.round((layer.opacity || 1) * 100)}% · ${
       BLEND_MODES.find((m) => m.value === (layer.blendMode || 'source-over'))?.label || 'Normal'
     }</span>
         </div>
@@ -433,21 +520,30 @@ export function renderLayersList() {
 
       <!-- Quick Toggles -->
       <div class="flex items-center gap-1 shrink-0">
-        <button class="btn-toggle-clip p-1 rounded hover:bg-zinc-800 ${
-          layer.clippingMask ? 'text-orange-400' : 'text-zinc-500 opacity-40 group-hover:opacity-100'
+        <!-- PERSISTENCE PIN BUTTON -->
+        <button class="btn-toggle-persist p-1 rounded hover:bg-slate-800 ${
+          isPersistent ? 'text-orange-400 opacity-100' : 'text-slate-500 opacity-40 group-hover:opacity-100'
+        }" title="${isPersistent ? 'Persistent Layer (Pinned across new frames)' : 'Click to make Persistent (Auto-held for backgrounds)'}">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+          </svg>
+        </button>
+
+        <button class="btn-toggle-clip p-1 rounded hover:bg-slate-800 ${
+          layer.clippingMask ? 'text-orange-400' : 'text-slate-500 opacity-40 group-hover:opacity-100'
         }" title="Clipping Mask: clip to layer below">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>
         </button>
-        <button class="btn-toggle-alpha p-1 rounded hover:bg-zinc-800 ${
-          layer.alphaLocked ? 'text-orange-400' : 'text-zinc-500 opacity-40 group-hover:opacity-100'
+        <button class="btn-toggle-alpha p-1 rounded hover:bg-slate-800 ${
+          layer.alphaLocked ? 'text-orange-400' : 'text-slate-500 opacity-40 group-hover:opacity-100'
         }" title="Alpha Lock: paint only inside opaque pixels">
           <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <rect x="3" y="3" width="18" height="18" rx="2" stroke-width="2" />
             <path d="M7 7h4v4H7zM13 13h4v4h-4z" fill="currentColor" stroke="none" />
           </svg>
         </button>
-        <button class="btn-toggle-lock p-1 rounded hover:bg-zinc-800 ${
-          layer.locked ? 'text-amber-400' : 'text-zinc-500 opacity-40 group-hover:opacity-100'
+        <button class="btn-toggle-lock p-1 rounded hover:bg-slate-800 ${
+          layer.locked ? 'text-orange-400' : 'text-slate-500 opacity-40 group-hover:opacity-100'
         }" title="Lock Layer">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             ${
@@ -466,6 +562,10 @@ export function renderLayersList() {
         suppressLayerClick = false;
         return;
       }
+      if (e.target.closest('.btn-toggle-persist')) {
+        toggleLayerPersistence(layer.id);
+        return;
+      }
       if (e.target.closest('.btn-toggle-vis')) {
         if (e.altKey) {
           toggleSoloLayer(layer.id);
@@ -473,6 +573,7 @@ export function renderLayersList() {
           layer.visible = !layer.visible;
           renderLayersList();
           requestRender();
+          saveHistoryState();
         }
         return;
       }
@@ -527,7 +628,7 @@ function startRenamingLayer(layerId) {
   input.type = 'text';
   input.value = layer.name;
   input.className =
-    'bg-zinc-950 text-xs font-semibold text-white px-2 py-0.5 rounded border border-indigo-500 outline-none w-32 shadow-inner';
+    'bg-slate-950 text-xs font-semibold text-white px-2 py-0.5 rounded border border-blue-500 outline-none w-32 shadow-inner';
   nameEl.replaceWith(input);
   input.focus();
   input.select();
@@ -617,7 +718,7 @@ function updateDragVisuals() {
     const isTarget = layerDragState?.moved && id === layerDragState.overId && id !== layerDragState.id;
     row.classList.toggle('opacity-40', Boolean(isSource));
     row.classList.toggle('ring-2', Boolean(isTarget));
-    row.classList.toggle('ring-indigo-400', Boolean(isTarget));
+    row.classList.toggle('ring-blue-400', Boolean(isTarget));
   });
 }
 
